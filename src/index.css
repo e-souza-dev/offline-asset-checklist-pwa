@@ -1,68 +1,160 @@
+/* =========================================================
+   PMESP — Tema escuro institucional (base global)
+   Objetivo: padronizar cores e estilos sem editar página por página
+   ========================================================= */
+
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  /* === Identidade (dark) === */
+  --bg-app: #202124;         /* fundo global (cinza-bandeirante escuro) */
+  --bg-surface: #2a2b2e;     /* cards / superfícies */
+  --bg-surface-2: #303134;   /* superfícies elevadas (leve destaque) */
+
+  /* ✅ Aliases para compatibilidade com os componentes */
+  --bg: var(--bg-app);                 /* usado como fundo "neutro" em botões/inputs */
+  --bg-accent: var(--bg-surface-2);    /* usado como botão de ação/destaque (sem cor fora do tema) */
+
+  --border: #3a3b3e;         /* bordas/divisões sutis */
+  --border-soft: #2f3033;
+
+  --text: #f5f5f5;           /* texto principal (branco fosco) */
+  --text-muted: #c7c7c7;     /* texto secundário */
+  --text-faint: #9aa0a6;     /* texto bem discreto */
+
+  --danger: #dc2626;         /* vermelho de alerta */
+  --danger-dark: #b91c1c;
+
+  --focus: #ffffff;          /* foco/realce leve (sem azul chamativo) */
+
+  /* === Tipografia e render === */
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* Ajuda o navegador a desenhar componentes nativos em dark */
+  color-scheme: dark;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
+/* Reset básico */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
-a:hover {
-  color: #535bf2;
+
+html,
+body {
+  height: 100%;
 }
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
+  background: var(--bg-app);
+  color: var(--text);
+}
+
+/* IMPORTANTÍSSIMO: remove o layout do template do Vite (centralizador) */
+#root {
   min-height: 100vh;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+/* Links — discretos (sem azul “web genérico”) */
+a {
+  color: var(--text);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--text-muted);
+  text-decoration: underline;
 }
 
+/* Tipografia básica */
+h1, h2, h3, h4 {
+  margin: 0.6rem 0 0.4rem;
+  color: var(--text);
+}
+p {
+  margin: 0.5rem 0;
+  color: var(--text-muted);
+}
+
+/* Controles (base) — não impede seus inline styles */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+/* Botão padrão “institucional” (neutro) */
 button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
+  color: var(--text);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
   cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+button:hover {
+  border-color: var(--text-faint);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Foco acessível (sem aquele azul padrão que foge do tema) */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Inputs (base) */
+input,
+select,
+textarea {
+  color: var(--text);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-faint);
+}
+
+/* Scrollbar (opcional; alguns browsers ignoram) */
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-app);
+}
+
+/* Utilitários simples (opcional)
+   Você pode usar className="card" se quiser padronizar aos poucos
+*/
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  color: var(--text);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.danger {
+  color: var(--danger);
 }

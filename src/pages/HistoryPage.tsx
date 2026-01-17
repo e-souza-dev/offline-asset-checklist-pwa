@@ -17,14 +17,15 @@ function normalizeRe(v: unknown): string {
 function officerLabelLocal(createdByRe: unknown): string {
   const re = normalizeRe(createdByRe);
   const u = USERS.find((x: any) => normalizeRe(x.re) === re);
-
   if (!u) return `RE ${re || "??????"}`;
-
-  // Exibir graduação + nome (como você quer)
   return `${u.rank} ${u.name}`.trim();
+}
 
-  // Se quiser com RE junto, troque pela linha abaixo:
-  // return `${u.rank} ${u.re} ${u.name}`.trim();
+function modeDisplay(c: any): string {
+  const mode = String(c?.mode ?? "(não informado)");
+  const detail = String(c?.modeDetail ?? "").trim();
+  if (mode === "Outros" && detail) return `Outros — ${detail}`;
+  return mode;
 }
 
 export default function HistoryPage({ vehicleCode, onOpenChecklist, onBack }: Props) {
@@ -50,106 +51,76 @@ export default function HistoryPage({ vehicleCode, onOpenChecklist, onBack }: Pr
   }, [vehicleCode]);
 
   return (
-    <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "#ffffffff" }}>
+    <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "var(--text)" }}>
       <button
         onClick={onBack}
         style={{
-          padding: "8px 10px",
+          padding: "10px 12px",
           borderRadius: 10,
-          border: "1px solid #cbd5e1",
-          background: "#0f172a",
+          border: "1px solid var(--border)",
+          background: "var(--bg)",
           cursor: "pointer",
-          color: "#ffffffff",
+          color: "var(--text)",
+          fontWeight: 800,
+          minHeight: 44,
         }}
       >
         ← Voltar
       </button>
 
-      <h2 style={{ marginTop: 12 }}>Histórico</h2>
-      <p style={{ marginTop: 0, color: "rgba(255, 255, 255, 1)" }}>
-        Viatura: <b>{vehicleName}</b>
+      <h2 style={{ marginTop: 12, color: "var(--text)" }}>Histórico</h2>
+      <p style={{ marginTop: 0, color: "var(--text-muted)" }}>
+        Viatura: <b style={{ color: "var(--text)" }}>{vehicleName}</b>
       </p>
 
       {items.length === 0 ? (
-        <p style={{ color: "rgba(255, 255, 255, 1)" }}>
-          Nenhum checklist salvo para esta viatura ainda.
-        </p>
+        <p style={{ color: "var(--text-muted)" }}>Nenhum checklist salvo para esta viatura ainda.</p>
       ) : (
-        <ul
-          style={{
-            listStyle: "none",
-            padding: 0,
-            margin: 0,
-            display: "grid",
-            gap: 8,
-          }}
-        >
+        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
           {items.map((c) => {
             const issue = hasIssues(c);
             const issueCount = countIssues(c);
 
-            const mode = (c as any).mode ?? "(não informado)";
-            const kmInitial = Number.isFinite((c as any).kmInitial)
-              ? (c as any).kmInitial
-              : "(não informado)";
-
+            const kmInitial = Number.isFinite((c as any).kmInitial) ? (c as any).kmInitial : "(não informado)";
             const templateId = (c as any).templateId ?? "(não informado)";
-            const templateVersion = Number.isFinite((c as any).templateVersion)
-              ? (c as any).templateVersion
-              : "(?)";
+            const templateVersion = Number.isFinite((c as any).templateVersion) ? (c as any).templateVersion : "(?)";
 
             return (
               <li
                 key={c.id}
                 style={{
-                  border: issue ? "2px solid #dc2626" : "1px solid #e2e8f0",
+                  border: issue ? "2px solid var(--danger)" : "1px solid var(--border)",
                   borderRadius: 12,
                   padding: 12,
-                  background: "#0f172a",
-                  color: "#ffffffff",
+                  background: "var(--bg-surface)",
+                  color: "var(--text)",
                 }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    alignItems: "center",
-                  }}
-                >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
                   <div>
-                    <div style={{ fontWeight: 800 }}>
+                    <div style={{ fontWeight: 900 }}>
                       {issue ? "⚠️ " : ""}
                       {new Date(c.createdAt).toLocaleString("pt-BR")}
                     </div>
 
-                    <div style={{ fontSize: 12, color: "white" }}>
-                      Feito por:{" "}
-                      {c.createdByRole === "admin" ? "Admin" : "Motorista"} •{" "}
-                      <b>{officerLabelLocal((c as any).createdByRe)}</b>
-                      {" • "}
-                      <span style={{ opacity: 0.8 }}>
-                        RE {normalizeRe((c as any).createdByRe)}
-                      </span>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                      Feito por: {c.createdByRole === "admin" ? "Admin" : "Motorista"} •{" "}
+                      <b style={{ color: "var(--text)" }}>{officerLabelLocal((c as any).createdByRe)}</b>{" "}
+                      • <span style={{ color: "var(--text-muted)" }}>RE {normalizeRe((c as any).createdByRe)}</span>
                     </div>
 
-                    <div style={{ fontSize: 12, color: "white" }}>
-                      Modalidade: <b>{mode}</b> • Km Inicial: <b>{kmInitial}</b>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                      Modalidade: <b style={{ color: "var(--text)" }}>{modeDisplay(c as any)}</b> • Km Inicial:{" "}
+                      <b style={{ color: "var(--text)" }}>{kmInitial}</b>
                     </div>
 
-                    <div style={{ fontSize: 12, color: "white" }}>
-                      Template: <b>{templateId}</b> • Versão: <b>{templateVersion}</b>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                      Template: <b style={{ color: "var(--text)" }}>{templateId}</b> • Versão:{" "}
+                      <b style={{ color: "var(--text)" }}>{templateVersion}</b>
                     </div>
 
                     {issue && (
-                      <div
-                        style={{
-                          marginTop: 6,
-                          fontSize: 12,
-                          fontWeight: 700,
-                          color: "#b91c1c",
-                        }}
-                      >
+                      <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900, color: "var(--danger)" }}>
                         ⚠️ {issueCount} apontamento(s)
                       </div>
                     )}
@@ -158,12 +129,14 @@ export default function HistoryPage({ vehicleCode, onOpenChecklist, onBack }: Pr
                   <button
                     onClick={() => onOpenChecklist(c.id!)}
                     style={{
-                      padding: "8px 10px",
+                      padding: "10px 12px",
                       borderRadius: 10,
-                      border: "1px solid #ffffffff",
-                      background: "#0f172a",
-                      color: "#ffffffff",
+                      border: "1px solid var(--border)",
+                      background: "var(--bg)",
+                      color: "var(--text)",
                       cursor: "pointer",
+                      minHeight: 44,
+                      fontWeight: 800,
                     }}
                   >
                     Abrir

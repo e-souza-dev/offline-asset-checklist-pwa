@@ -20,13 +20,15 @@ export default function UserGreeting({
         marginTop: 8,
         padding: 12,
         borderRadius: 12,
-        border: "1px solid #e5e7eb",
-        background: "white",
-        color: "#0f172a",
+        border: "1px solid var(--border)",
+        background: "var(--bg-surface)",
+        color: "var(--text)",
       }}
     >
-      <div style={{ fontWeight: 900, fontSize: 16 }}>Bem-vindo 👋</div>
-      <div style={{ marginTop: 6, fontSize: 14, color: "rgba(15,23,42,0.85)" }}>
+      <div style={{ fontWeight: 900, fontSize: 16, color: "var(--text)" }}>
+        Bem-vindo 👋
+      </div>
+      <div style={{ marginTop: 6, fontSize: 14, color: "var(--text-muted)" }}>
         {greetingText}
       </div>
     </div>

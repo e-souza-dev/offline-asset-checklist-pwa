@@ -7,6 +7,8 @@ import { USERS } from "../users";
 type Props = {
   checklistId: number;
   onBack: () => void;
+  canDelete?: boolean;
+  onDeleted?: () => void;
 };
 
 function normalizeRe(v: unknown): string {
@@ -17,11 +19,20 @@ function officerLabel(createdByRe: unknown): string {
   const re = normalizeRe(createdByRe);
   const u = USERS.find((x: any) => normalizeRe(x.re) === re);
   if (!u) return `RE ${re || "??????"}`;
-  return `${u.rank} ${u.name}`.trim(); // Ex: "Sd PM E. Souza"
+  return `${u.rank} ${u.name}`.trim();
 }
 
-export default function ChecklistDetailPage({ checklistId, onBack }: Props) {
+function modeDisplay(item: any): string {
+  const mode = String(item?.mode ?? "(não informado)");
+  const detail = String(item?.modeDetail ?? "").trim();
+  if (mode === "Outros" && detail) return `Outros — ${detail}`;
+  return mode;
+}
+
+export default function ChecklistDetailPage({ checklistId, onBack, canDelete = false, onDeleted }: Props) {
   const [item, setItem] = useState<ChecklistRecord | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -36,38 +47,52 @@ export default function ChecklistDetailPage({ checklistId, onBack }: Props) {
     return v?.name ?? item.vehicleCode;
   }, [item]);
 
+  async function handleDelete() {
+    if (!canDelete) return;
+    if (!item) return;
+
+    const ok = window.confirm("Confirma excluir este checklist? Esta ação não pode ser desfeita.");
+    if (!ok) return;
+
+    try {
+      setBusy(true);
+      setMsg(null);
+      await db.checklists.delete(checklistId);
+      setMsg("Checklist excluído com sucesso.");
+      onDeleted?.();
+    } catch {
+      setMsg("Falha ao excluir. Tente novamente.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const btn: React.CSSProperties = {
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    background: "var(--bg)",
+    cursor: "pointer",
+    color: "var(--text)",
+    fontWeight: 800,
+    minHeight: 44,
+  };
+
   if (!item) {
     return (
-      <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "#0f172a" }}>
-        <button
-          onClick={onBack}
-          style={{
-            padding: "8px 10px",
-            borderRadius: 10,
-            border: "1px solid #cbd5e1",
-            background: "white",
-            cursor: "pointer",
-            color: "#0f172a",
-          }}
-        >
+      <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "var(--text)" }}>
+        <button onClick={onBack} style={btn}>
           ← Voltar
         </button>
 
-        <p style={{ marginTop: 12, color: "rgba(15,23,42,0.85)" }}>
-          Carregando checklist...
-        </p>
+        <p style={{ marginTop: 12, color: "var(--text-muted)" }}>Carregando checklist...</p>
       </div>
     );
   }
 
-  const mode = (item as any).mode ?? "(não informado)";
-  const kmInitial = Number.isFinite((item as any).kmInitial)
-    ? (item as any).kmInitial
-    : "(não informado)";
+  const kmInitial = Number.isFinite((item as any).kmInitial) ? (item as any).kmInitial : "(não informado)";
   const templateId = (item as any).templateId ?? "(não informado)";
-  const templateVersion = Number.isFinite((item as any).templateVersion)
-    ? (item as any).templateVersion
-    : "(?)";
+  const templateVersion = Number.isFinite((item as any).templateVersion) ? (item as any).templateVersion : "(?)";
 
   const issue = hasIssues(item);
   const issueCount = countIssues(item);
@@ -76,63 +101,86 @@ export default function ChecklistDetailPage({ checklistId, onBack }: Props) {
   const createdLabel = officerLabel((item as any).createdByRe);
 
   return (
-    <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "#0f172a" }}>
-      <button
-        onClick={onBack}
-        style={{
-          padding: "8px 10px",
-          borderRadius: 10,
-          border: "1px solid #cbd5e1",
-          background: "white",
-          cursor: "pointer",
-          color: "#0f172a",
-        }}
-      >
-        ← Voltar
-      </button>
+    <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "var(--text)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <button onClick={onBack} style={btn}>
+          ← Voltar
+        </button>
 
-      <h2 style={{ marginTop: 12 }}>
+        {canDelete && (
+          <button
+            onClick={handleDelete}
+            disabled={busy}
+            style={{
+              ...btn,
+              border: "2px solid var(--danger)",
+              color: "var(--text)",
+              background: "var(--bg-surface)",
+              opacity: busy ? 0.75 : 1,
+            }}
+          >
+            {busy ? "Excluindo..." : "Excluir checklist"}
+          </button>
+        )}
+      </div>
+
+      <h2 style={{ marginTop: 12, color: "var(--text)" }}>
         {issue ? "⚠️ " : ""}
         Checklist
       </h2>
 
-<div
-  style={{
-    marginTop: 8,
-    marginBottom: 12,
-    padding: 14,
-    borderRadius: 12,
-    background: "#202124",          // cinza estilo ChatGPT
-    border: "1px solid #202124",
-    color: "white",
-    lineHeight: 1.5,
-  }}
->
-  <div>
-    Viatura: <b>{vehicleName}</b>
-  </div>
+      <div
+        style={{
+          marginTop: 8,
+          marginBottom: 12,
+          padding: 14,
+          borderRadius: 12,
+          background: "var(--bg-surface)",
+          border: "1px solid var(--border)",
+          color: "var(--text)",
+          lineHeight: 1.5,
+        }}
+      >
+        <div>
+          Viatura: <b>{vehicleName}</b>
+        </div>
 
-  <div>
-    Data: <b>{new Date(item.createdAt).toLocaleString("pt-BR")}</b>
-  </div>
+        <div>
+          Data: <b>{new Date(item.createdAt).toLocaleString("pt-BR")}</b>
+        </div>
 
-  <div>
-    Feito por:{" "}
-    <b>
-      {item.createdByRole === "admin" ? "Admin" : "Motorista"} • {createdLabel} •
-      RE {createdRe}
-    </b>
-  </div>
+        <div>
+          Feito por:{" "}
+          <b>
+            {item.createdByRole === "admin" ? "Admin" : "Motorista"} • {createdLabel} • RE {createdRe}
+          </b>
+        </div>
 
-  <div>
-    Modalidade: <b>{mode}</b> • Km Inicial: <b>{kmInitial}</b>
-  </div>
+        <div>
+          Modalidade: <b>{modeDisplay(item as any)}</b> • Km Inicial: <b>{kmInitial}</b>
+        </div>
 
-  <div>
-    Template: <b>{templateId}</b> • Versão: <b>{templateVersion}</b>
-  </div>
-</div>
+        <div>
+          Template: <b>{templateId}</b> • Versão: <b>{templateVersion}</b>
+        </div>
+      </div>
 
+      {msg && (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: 10,
+            borderRadius: 10,
+            border: msg.includes("sucesso") ? "1px solid var(--border)" : "2px solid var(--danger)",
+            background: "var(--bg-surface-2)",
+            color: "var(--text)",
+            fontWeight: 800,
+            fontSize: 13,
+          }}
+        >
+          {msg}
+        </div>
+      )}
 
       {issue && (
         <div
@@ -140,10 +188,10 @@ export default function ChecklistDetailPage({ checklistId, onBack }: Props) {
             marginBottom: 12,
             padding: 10,
             borderRadius: 10,
-            border: "2px solid #dc2626",
-            background: "#fef2f2",
-            color: "#b91c1c",
-            fontWeight: 700,
+            border: "2px solid var(--danger)",
+            background: "var(--bg-surface-2)",
+            color: "var(--text)",
+            fontWeight: 900,
             fontSize: 14,
           }}
         >
@@ -153,21 +201,17 @@ export default function ChecklistDetailPage({ checklistId, onBack }: Props) {
 
       <section
         style={{
-          border: "1px solid #e5e7eb",
+          border: "1px solid var(--border)",
           borderRadius: 12,
           padding: 16,
-          background: "transparent",
-          color: "#0f172a",
+          background: "var(--bg-surface)",
+          color: "var(--text)",
         }}
       >
         {item.answers.map((a) => {
           const isIssue = a.type === "yesno" && a.value === "no";
           const valueText =
-            a.type === "yesno"
-              ? a.value === "no"
-                ? "Não"
-                : "Sim"
-              : (a.value as string) || "(vazio)";
+            a.type === "yesno" ? (a.value === "no" ? "Não" : "Sim") : (a.value as string) || "(vazio)";
 
           return (
             <div
@@ -175,20 +219,18 @@ export default function ChecklistDetailPage({ checklistId, onBack }: Props) {
               style={{
                 padding: 12,
                 marginBottom: 8,
-                borderRadius: 8,
-                border: isIssue ? "2px solid #dc2626" : "1px solid #f1f5f9",
-                background: isIssue ? "#fef2f2" : "white",
-                color: "#0f172a",
+                borderRadius: 10,
+                border: isIssue ? "2px solid var(--danger)" : "1px solid var(--border)",
+                background: "var(--bg)",
+                color: "var(--text)",
               }}
             >
-              <div style={{ fontWeight: 800, color: "#0f172a" }}>
+              <div style={{ fontWeight: 900, color: "var(--text)" }}>
                 {isIssue ? "⚠️ " : ""}
                 {a.label}
               </div>
 
-              <div style={{ marginTop: 6, color: "rgba(15,23,42,0.9)" }}>
-                {valueText}
-              </div>
+              <div style={{ marginTop: 6, color: "var(--text-muted)" }}>{valueText}</div>
             </div>
           );
         })}

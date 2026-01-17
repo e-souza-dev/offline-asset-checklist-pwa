@@ -10,8 +10,8 @@ import HistoryPage from "./pages/HistoryPage";
 import ChecklistDetailPage from "./pages/ChecklistDetailPage";
 import AdminDashboardPage from "./pages/AdminDashboardPage";
 
-// ✅ Só precisa existir: export const USERS = [...]
 import { USERS } from "./users";
+import UserGreeting from "./components/UserGreeting";
 
 type Page =
   | { name: "home" }
@@ -52,7 +52,6 @@ export default function App() {
     setPage({ name: "home" });
   }
 
-  // ✅ Hook SEMPRE executa, mesmo sem sessão
   const sessionRe = session?.re ?? "";
   const user = useMemo(() => {
     if (!sessionRe) return undefined;
@@ -63,8 +62,8 @@ export default function App() {
 
   if (!ready) {
     return (
-      <div style={{ maxWidth: 520, margin: "0 auto", padding: 16, fontFamily: "system-ui", color: "#0f172a" }}>
-        <p>Carregando...</p>
+      <div style={{ maxWidth: 520, margin: "0 auto", padding: 16, color: "var(--text)" }}>
+        <p style={{ color: "var(--text-muted)" }}>Carregando...</p>
       </div>
     );
   }
@@ -74,57 +73,71 @@ export default function App() {
   const canSeeHistory = session.role === "admin";
   const roleLabel = session.role === "admin" ? "Administração" : "Operacional";
 
+  const topBar: React.CSSProperties = {
+    borderBottom: "1px solid var(--border)",
+    padding: 12,
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    background: "var(--bg-surface)",
+    color: "var(--text)",
+  };
+
+  const btn: React.CSSProperties = {
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    background: "var(--bg)",
+    cursor: "pointer",
+    color: "var(--text)",
+    fontWeight: 700,
+    minHeight: 44,
+  };
+
+  const pageWrap: React.CSSProperties = {
+    maxWidth: 820,
+    margin: "0 auto",
+    padding: 16,
+    color: "var(--text)",
+  };
+
   return (
-    <div style={{ fontFamily: "system-ui" }}>
-      <div
-        style={{
-          borderBottom: "1px solid #e5e7eb",
-          padding: 12,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 12,
-          color: "white",
-        }}
-      >
+    <div style={{ fontFamily: "system-ui", background: "var(--bg-app)", minHeight: "100vh" }}>
+      <div style={topBar}>
         <div>
-          <div style={{ fontWeight: 900 }}>Manutenção de Primeiro Escalão</div>
-          <div style={{ fontSize: 12, color: "white" }}>
+          <div style={{ fontWeight: 900, color: "var(--text)" }}>Manutenção de Primeiro Escalão</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
             Sessão: {roleLabel} • {userDisplay}
           </div>
         </div>
 
-        <button
-          onClick={logout}
-          style={{
-            padding: "8px 10px",
-            borderRadius: 10,
-            border: "1px solid #cbd5e1",
-            background: "white",
-            cursor: "pointer",
-            color: "#0f172a",
-          }}
-        >
+        <button onClick={logout} style={btn}>
           Sair
         </button>
       </div>
 
       {page.name === "home" && (
-        <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "#0f172a" }}>
-          <div
-            style={{
-              padding: 12,
-              borderRadius: 12,
-              border: "1px solid #e5e7eb",
-              background: "white",
-              marginBottom: 12,
-            }}
-          >
-            <div style={{ fontWeight: 900, fontSize: 16 }}>Bem-vindo</div>
-            <div style={{ marginTop: 6, fontSize: 14, color: "rgba(15,23,42,0.85)" }}>
-              {user ? `${user.rank} ${user.name}` : `RE ${session.re}`}
+        <div style={pageWrap}>
+          {user ? (
+            <UserGreeting user={user} showRe={false} />
+          ) : (
+            <div
+              style={{
+                marginTop: 8,
+                padding: 12,
+                borderRadius: 12,
+                border: "1px solid var(--border)",
+                background: "var(--bg-surface)",
+                color: "var(--text)",
+              }}
+            >
+              <div style={{ fontWeight: 900, fontSize: 16 }}>Bem-vindo 👋</div>
+              <div style={{ marginTop: 6, fontSize: 14, color: "var(--text-muted)" }}>
+                RE {session.re}
+              </div>
             </div>
-          </div>
+          )}
 
           <HomePage
             role={session.role}
@@ -161,19 +174,9 @@ export default function App() {
               onOpenChecklist={(id: number) => setPage({ name: "detail", checklistId: id })}
             />
           ) : (
-            <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "#0f172a" }}>
-              <p>Acesso negado.</p>
-              <button
-                onClick={() => setPage({ name: "vehicles" })}
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 10,
-                  border: "1px solid #cbd5e1",
-                  background: "white",
-                  cursor: "pointer",
-                  color: "#0f172a",
-                }}
-              >
+            <div style={pageWrap}>
+              <p style={{ color: "var(--text-muted)" }}>Acesso negado.</p>
+              <button onClick={() => setPage({ name: "vehicles" })} style={btn}>
                 Voltar
               </button>
             </div>
@@ -182,7 +185,12 @@ export default function App() {
       )}
 
       {page.name === "detail" && (
-        <ChecklistDetailPage checklistId={page.checklistId} onBack={() => setPage({ name: "home" })} />
+        <ChecklistDetailPage
+          checklistId={page.checklistId}
+          canDelete={session.role === "admin"}
+          onDeleted={() => setPage({ name: "home" })}
+          onBack={() => setPage({ name: "home" })}
+        />
       )}
 
       {page.name === "dashboard" && session.role === "admin" && (
@@ -193,8 +201,8 @@ export default function App() {
       )}
 
       {page.name === "dashboard" && session.role !== "admin" && (
-        <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "#0f172a" }}>
-          <p>Acesso negado.</p>
+        <div style={pageWrap}>
+          <p style={{ color: "var(--text-muted)" }}>Acesso negado.</p>
         </div>
       )}
     </div>

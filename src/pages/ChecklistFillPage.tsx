@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { db, type ChecklistAnswer, type PolicingMode } from "../db";
 import { FIXED_VEHICLES } from "../vehicles";
 import { TEMPLATES } from "../checklists/templates";
@@ -50,6 +50,7 @@ export default function ChecklistFillPage({
   const todayTag = useMemo(() => formatTagDate(new Date()), []);
 
   const [mode, setMode] = useState<PolicingMode | "">("");
+  const [modeDetail, setModeDetail] = useState<string>(""); // ✅ usado quando mode === "Outros"
   const [kmInitial, setKmInitial] = useState<string>("");
 
   const [values, setValues] = useState<Record<string, string>>(() => {
@@ -63,19 +64,46 @@ export default function ChecklistFillPage({
 
   const [error, setError] = useState<string | null>(null);
 
-  // ✅ 12.1: trava para evitar "salvar" duplo
+  // trava evitar "salvar" duplo
   const [isSaving, setIsSaving] = useState(false);
 
-  // ✅ 12.2: para destacar campos inválidos
+  // destacar campos inválidos
   const [invalidMode, setInvalidMode] = useState(false);
+  const [invalidModeDetail, setInvalidModeDetail] = useState(false);
   const [invalidKm, setInvalidKm] = useState(false);
 
   // refs para rolar até o campo
   const modeRef = useRef<HTMLDivElement | null>(null);
   const kmRef = useRef<HTMLDivElement | null>(null);
 
-  // ✅ Mensagem de sucesso do motorista (sem abrir detalhe)
+  // Mensagem de sucesso do motorista (sem abrir detalhe)
   const [savedOk, setSavedOk] = useState(false);
+
+  // ✅ Validação de KM: último KM registrado por viatura
+  const [lastKm, setLastKm] = useState<number | null>(null);
+  const [needKmConfirm, setNeedKmConfirm] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const list = await db.checklists.where("vehicleCode").equals(vehicleCode).toArray();
+        let latest: any = null;
+
+        for (const c of list as any[]) {
+          if (!latest) {
+            latest = c;
+            continue;
+          }
+          if (String(c.createdAt ?? "") > String(latest.createdAt ?? "")) latest = c;
+        }
+
+        const km = latest && Number.isFinite(Number(latest.kmInitial)) ? Number(latest.kmInitial) : null;
+        setLastKm(km !== null ? Math.floor(km) : null);
+      } catch {
+        setLastKm(null);
+      }
+    })();
+  }, [vehicleCode]);
 
   function setValue(key: string, value: string) {
     setValues((prev) => ({ ...prev, [key]: value }));
@@ -87,11 +115,12 @@ export default function ChecklistFillPage({
     el.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
-  async function save() {
+  async function save(forceKm = false) {
     if (isSaving) return;
 
     setError(null);
     setInvalidMode(false);
+    setInvalidModeDetail(false);
     setInvalidKm(false);
 
     if (!vehicle || !template) {
@@ -106,6 +135,17 @@ export default function ChecklistFillPage({
       return;
     }
 
+    // ✅ Outros: exige descrição curta
+    if (mode === "Outros") {
+      const d = modeDetail.trim();
+      if (d.length < 3) {
+        setInvalidModeDetail(true);
+        setError("Em 'Outros', descreva brevemente a modalidade (mín. 3 caracteres).");
+        scrollTo(modeRef);
+        return;
+      }
+    }
+
     if (!kmInitial.trim()) {
       setInvalidKm(true);
       setError("Informe o Km Inicial para continuar.");
@@ -117,6 +157,18 @@ export default function ChecklistFillPage({
     if (!Number.isFinite(km) || km < 0) {
       setInvalidKm(true);
       setError("Km Inicial inválido. Digite apenas números (ex: 54321).");
+      scrollTo(kmRef);
+      return;
+    }
+
+    // ✅ Validação: km não pode ser menor que o último registrado (sem confirmação)
+    if (lastKm !== null && km < lastKm && !forceKm) {
+      setNeedKmConfirm(true);
+      setInvalidKm(true);
+      setError(
+        `Km Inicial menor que o último registrado para esta viatura (último: ${lastKm}). ` +
+          `Se estiver correto (ex.: troca de painel/odômetro), confirme para salvar.`
+      );
       scrollTo(kmRef);
       return;
     }
@@ -144,11 +196,12 @@ export default function ChecklistFillPage({
         createdByRe,
         createdByRole,
         mode: mode as PolicingMode,
+        modeDetail: mode === "Outros" ? modeDetail.trim() : "",
         kmInitial: Math.floor(km),
         templateId: template.templateId,
         templateVersion: template.version,
         answers,
-      });
+      } as any);
 
       // ✅ Motorista: só mensagem de sucesso
       if (createdByRole === "driver") {
@@ -156,7 +209,7 @@ export default function ChecklistFillPage({
         return;
       }
 
-      // ✅ Admin: abre detalhe como antes
+      // ✅ Admin: abre detalhe
       onSaved(id);
     } catch (e) {
       setError("Falha ao salvar. Tente novamente.");
@@ -168,13 +221,13 @@ export default function ChecklistFillPage({
   // ✅ Tela de sucesso do motorista
   if (createdByRole === "driver" && savedOk) {
     return (
-      <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "white" }}>
-        <h2 style={{ marginTop: 0 }}>Checklist enviado ✅</h2>
-        <p style={{ marginTop: 8, color: "white" }}>
+      <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "var(--text)" }}>
+        <h2 style={{ marginTop: 0, color: "var(--text)" }}>Checklist enviado ✅</h2>
+        <p style={{ marginTop: 8, color: "var(--text-muted)" }}>
           Registro salvo com sucesso.
           <br />
-          Viatura: <b>{vehicleCode}</b> • Data/Hora:{" "}
-          <b>{new Date().toLocaleString("pt-BR")}</b>
+          Viatura: <b style={{ color: "var(--text)" }}>{vehicleCode}</b> • Data/Hora:{" "}
+          <b style={{ color: "var(--text)" }}>{new Date().toLocaleString("pt-BR")}</b>
         </p>
 
         <button
@@ -184,13 +237,13 @@ export default function ChecklistFillPage({
             width: "100%",
             padding: 14,
             borderRadius: 12,
-            border: "1px solid white",
-            background: "#0f172a",
-            color: "white",
+            border: "1px solid var(--border)",
+            background: "var(--bg)",
+            color: "var(--text)",
             cursor: "pointer",
             minHeight: 48,
             fontSize: 16,
-            fontWeight: 700,
+            fontWeight: 800,
           }}
         >
           Voltar
@@ -201,100 +254,108 @@ export default function ChecklistFillPage({
 
   if (!vehicle || !template) {
     return (
-      <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "#0f172a" }}>
+      <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "var(--text)" }}>
         <button
           onClick={onBack}
           style={{
             padding: "10px 12px",
             borderRadius: 12,
-            border: "1px solid #cbd5e1",
-            background: "white",
+            border: "1px solid var(--border)",
+            background: "var(--bg)",
             cursor: "pointer",
             minHeight: 44,
-            color: "#0f172a",
+            color: "var(--text)",
+            fontWeight: 700,
           }}
         >
           ← Voltar
         </button>
-        <p style={{ marginTop: 12 }}>
-          Viatura/template não encontrado. Verifique <b>src/vehicles.ts</b> e{" "}
-          <b>src/checklists/templates.ts</b>.
+        <p style={{ marginTop: 12, color: "var(--text-muted)" }}>
+          Viatura/template não encontrado. Verifique <b style={{ color: "var(--text)" }}>src/vehicles.ts</b> e{" "}
+          <b style={{ color: "var(--text)" }}>src/checklists/templates.ts</b>.
         </p>
       </div>
     );
   }
 
-  // ✅ Estilos “mobile-first” só desta tela (motorista)
   const styles = {
     btn: {
       padding: "12px 12px",
       borderRadius: 12,
-      border: "1px solid #cbd5e1",
-      background: "white",
+      border: "1px solid var(--border)",
+      background: "var(--bg)",
       cursor: "pointer",
       minHeight: 48,
       fontSize: 16,
-      color: "#0f172a",
+      color: "var(--text)",
+      fontWeight: 800,
     } as React.CSSProperties,
     btnPrimary: {
       marginTop: 12,
       width: "100%",
       padding: 14,
       borderRadius: 12,
-      border: "1px solid #0f172a",
-      background: "#0f172a",
-      color: "white",
+      border: "1px solid var(--border)",
+      background: "var(--bg-surface-2)",
+      color: "var(--text)",
       cursor: "pointer",
       minHeight: 52,
       fontSize: 16,
-      fontWeight: 800,
+      fontWeight: 900,
     } as React.CSSProperties,
     card: {
-      border: "1px solid #e5e7eb",
+      border: "1px solid var(--border)",
       borderRadius: 12,
       padding: 16,
-      background: "white",
+      background: "var(--bg-surface)",
     } as React.CSSProperties,
     label: {
-      fontWeight: 800,
+      fontWeight: 900,
       marginBottom: 8,
       fontSize: 16,
-      color: "#0f172a",
+      color: "var(--text)",
     } as React.CSSProperties,
     input: (invalid: boolean) =>
       ({
-      width: "100%",
-      maxWidth: "100%",
-      boxSizing: "border-box",
-      padding: 12,
-      borderRadius: 12,
-      border: invalid ? "2px solid #dc2626" : "1px solid #cbd5e1",
-      fontSize: 16,
-      minHeight: 48,
-      outline: "none",
+        width: "100%",
+        maxWidth: "100%",
+        boxSizing: "border-box",
+        padding: 12,
+        borderRadius: 12,
+        border: invalid ? "2px solid var(--danger)" : "1px solid var(--border)",
+        fontSize: 16,
+        minHeight: 48,
+        outline: "none",
+        background: "var(--bg-surface-2)",
+        color: "var(--text)",
       } as React.CSSProperties),
+    hint: {
+      marginTop: 6,
+      fontSize: 12,
+      color: "var(--text-muted)",
+      lineHeight: 1.35,
+    } as React.CSSProperties,
   };
 
   return (
-    <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "#ffffffff" }}>
+    <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "var(--text)" }}>
       <button onClick={onBack} style={styles.btn}>
         ← Voltar
       </button>
 
-      <h2 style={{ marginTop: 12, fontSize: 22 }}>
-        Checklist do dia {todayTag}
-      </h2>
+      <h2 style={{ marginTop: 12, fontSize: 22, color: "var(--text)" }}>Checklist do dia {todayTag}</h2>
 
-      <p style={{ marginTop: 0, color: "#ffffffff", lineHeight: 1.35 }}>
-        Viatura: <b>{vehicle.code}</b> • Placa: <b>{vehicle.plate}</b>
+      <p style={{ marginTop: 0, color: "var(--text-muted)", lineHeight: 1.35 }}>
+        Viatura: <b style={{ color: "var(--text)" }}>{vehicle.code}</b> • Placa:{" "}
+        <b style={{ color: "var(--text)" }}>{vehicle.plate}</b>
         <br />
-        Modelo: <b>{template.title}</b>
+        Modelo: <b style={{ color: "var(--text)" }}>{template.title}</b>
         <br />
-        Usuário: <b>RE {createdByRe}</b>
+        Usuário: <b style={{ color: "var(--text)" }}>RE {createdByRe}</b>
       </p>
 
       <section style={{ ...styles.card, marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0, color: "#0f172a", fontSize: 18 }}>Dados do serviço</h3>
+        <h3 style={{ marginTop: 0, color: "var(--text)", fontSize: 18 }}>Dados do serviço</h3>
 
         <div style={{ display: "grid", gap: 12 }}>
           <div ref={modeRef}>
@@ -304,6 +365,12 @@ export default function ChecklistFillPage({
               onChange={(e) => {
                 setMode(e.target.value as PolicingMode);
                 setInvalidMode(false);
+                setError(null);
+                setNeedKmConfirm(false);
+                if (e.target.value !== "Outros") {
+                  setModeDetail("");
+                  setInvalidModeDetail(false);
+                }
               }}
               style={styles.input(invalidMode)}
             >
@@ -314,6 +381,23 @@ export default function ChecklistFillPage({
                 </option>
               ))}
             </select>
+
+            {mode === "Outros" && (
+              <div style={{ marginTop: 10 }}>
+                <div style={styles.label}>Descrição (Outros)</div>
+                <input
+                  value={modeDetail}
+                  onChange={(e) => {
+                    setModeDetail(e.target.value);
+                    setInvalidModeDetail(false);
+                    setError(null);
+                  }}
+                  placeholder="Ex: apoio evento, escolta, ronda setorial..."
+                  style={styles.input(invalidModeDetail)}
+                />
+                <div style={styles.hint}>Obrigatório em “Outros”. Mantenha curto e objetivo.</div>
+              </div>
+            )}
           </div>
 
           <div ref={kmRef}>
@@ -323,31 +407,39 @@ export default function ChecklistFillPage({
               onChange={(e) => {
                 setKmInitial(e.target.value);
                 setInvalidKm(false);
+                setError(null);
+                setNeedKmConfirm(false);
               }}
               inputMode="numeric"
               placeholder="Ex: 54321"
               style={styles.input(invalidKm)}
             />
-          </div>
 
-          <div style={{ fontSize: 16, color: "rgba(15,23,42,0.75)" }}>
-            O horário é registrado automaticamente no momento em que você salva.
+            {lastKm !== null && (
+              <div style={styles.hint}>
+                Último Km registrado nesta viatura: <b style={{ color: "var(--text)" }}>{lastKm}</b>
+              </div>
+            )}
+
+            <div style={styles.hint}>
+              O horário é registrado automaticamente no momento em que você salva.
+            </div>
           </div>
         </div>
       </section>
 
       <section style={styles.card}>
-        <h3 style={{ marginTop: 0, fontSize: 18 }}>{template.title}</h3>
+        <h3 style={{ marginTop: 0, fontSize: 18, color: "var(--text)" }}>{template.title}</h3>
 
         {template.items.map((item) => (
           <div
             key={item.key}
             style={{
               padding: "12px 0",
-              borderBottom: "1px solid #f1f5f9",
+              borderBottom: "1px solid var(--border-soft)",
             }}
           >
-            <div style={{ fontWeight: 800, marginBottom: 10, color: "#0f172a", fontSize: 16 }}>
+            <div style={{ fontWeight: 900, marginBottom: 10, color: "var(--text)", fontSize: 16 }}>
               {item.label}
             </div>
 
@@ -360,13 +452,13 @@ export default function ChecklistFillPage({
                     flex: 1,
                     padding: "12px 10px",
                     borderRadius: 12,
-                    border: "1px solid #cbd5e1",
-                    background: values[item.key] === "yes" ? "#0f172a" : "white",
-                    color: values[item.key] === "yes" ? "white" : "#0f172a",
+                    border: "1px solid var(--border)",
+                    background: values[item.key] === "yes" ? "var(--bg-surface-2)" : "var(--bg)",
+                    color: "var(--text)",
                     cursor: "pointer",
                     minHeight: 48,
                     fontSize: 16,
-                    fontWeight: 800,
+                    fontWeight: 900,
                   }}
                 >
                   Sim
@@ -378,13 +470,13 @@ export default function ChecklistFillPage({
                     flex: 1,
                     padding: "12px 10px",
                     borderRadius: 12,
-                    border: "1px solid #cbd5e1",
-                    background: values[item.key] === "no" ? "#0f172a" : "white",
-                    color: values[item.key] === "no" ? "white" : "#0f172a",
+                    border: values[item.key] === "no" ? "2px solid var(--danger)" : "1px solid var(--border)",
+                    background: values[item.key] === "no" ? "var(--bg-surface-2)" : "var(--bg)",
+                    color: "var(--text)",
                     cursor: "pointer",
                     minHeight: 48,
                     fontSize: 16,
-                    fontWeight: 800,
+                    fontWeight: 900,
                   }}
                 >
                   Não
@@ -397,12 +489,15 @@ export default function ChecklistFillPage({
                 placeholder="Digite observações..."
                 rows={3}
                 style={{
-                  width: "95%",
+                  width: "100%",
+                  boxSizing: "border-box",
                   padding: 12,
                   borderRadius: 12,
-                  border: "1px solid #cbd5e1",
+                  border: "1px solid var(--border)",
                   fontSize: 16,
                   minHeight: 88,
+                  background: "var(--bg-surface-2)",
+                  color: "var(--text)",
                 }}
               />
             )}
@@ -410,7 +505,7 @@ export default function ChecklistFillPage({
         ))}
 
         <button
-          onClick={save}
+          onClick={() => save(false)}
           disabled={isSaving}
           style={{
             ...styles.btnPrimary,
@@ -426,13 +521,34 @@ export default function ChecklistFillPage({
               marginTop: 12,
               padding: 12,
               borderRadius: 12,
-              border: "2px solid #ef4444",
-              background: "#fef2f2",
-              color: "#b91c1c",
+              border: `2px solid ${needKmConfirm ? "var(--danger)" : "var(--danger)"}`,
+              background: "var(--bg-surface-2)",
+              color: "var(--text)",
               fontWeight: 800,
             }}
           >
-            {error}
+            <div>{error}</div>
+
+            {needKmConfirm && (
+              <button
+                onClick={() => save(true)}
+                disabled={isSaving}
+                style={{
+                  marginTop: 10,
+                  width: "100%",
+                  padding: 12,
+                  borderRadius: 12,
+                  border: "1px solid var(--border)",
+                  background: "var(--bg)",
+                  color: "var(--text)",
+                  cursor: "pointer",
+                  minHeight: 46,
+                  fontWeight: 900,
+                }}
+              >
+                Confirmar e salvar mesmo assim
+              </button>
+            )}
           </div>
         )}
       </section>

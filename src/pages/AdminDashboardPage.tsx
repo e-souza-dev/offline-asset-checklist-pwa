@@ -3,7 +3,7 @@ import { db, type ChecklistRecord, type PolicingMode } from "../db";
 import { FIXED_VEHICLES } from "../vehicles";
 import { hasIssues, countIssues } from "../utils/checklist";
 import { officerLabel } from "../userLookup";
-
+import { APP_VERSION } from "../version";
 
 function downloadFile(filename: string, content: string, mime: string) {
   const blob = new Blob([content], { type: mime });
@@ -22,14 +22,12 @@ function csvEscape(s: string) {
 }
 
 function isoFromLocalDateStart(dateStr: string) {
-  // dateStr: "YYYY-MM-DD" -> início do dia local
   const [y, m, d] = dateStr.split("-").map(Number);
   const dt = new Date(y, m - 1, d, 0, 0, 0, 0);
   return dt.toISOString();
 }
 
 function isoFromLocalDateEnd(dateStr: string) {
-  // dateStr: "YYYY-MM-DD" -> fim do dia local
   const [y, m, d] = dateStr.split("-").map(Number);
   const dt = new Date(y, m - 1, d, 23, 59, 59, 999);
   return dt.toISOString();
@@ -57,7 +55,6 @@ function safeNumber(value: unknown): number | null {
 }
 
 function normalizeImportedRecord(raw: any): Omit<ChecklistRecord, "id"> | null {
-  // Aceita registros de versões antigas e preenche defaults
   if (!raw || typeof raw !== "object") return null;
 
   const vehicleCode = String(raw.vehicleCode ?? "").trim();
@@ -67,18 +64,12 @@ function normalizeImportedRecord(raw: any): Omit<ChecklistRecord, "id"> | null {
 
   if (!vehicleCode || !createdAt || !createdByRe) return null;
 
-  const createdByRole: "driver" | "admin" =
-    createdByRoleRaw === "admin" ? "admin" : "driver";
-
+  const createdByRole: "driver" | "admin" = createdByRoleRaw === "admin" ? "admin" : "driver";
   const mode: PolicingMode = isValidMode(raw.mode) ? raw.mode : "Outros";
 
   const kmN = safeNumber(raw.kmInitial);
   const kmInitial = kmN !== null && kmN >= 0 ? Math.floor(kmN) : 0;
 
-  // ✅ template (compatibilidade com backups antigos)
-  // 1) usa o valor do backup se existir
-  // 2) tenta inferir pelo cadastro FIXED_VEHICLES
-  // 3) fallback "UNKNOWN"
   let templateId = String(raw.templateId ?? "").trim();
   let templateVersion = safeNumber(raw.templateVersion);
 
@@ -87,9 +78,7 @@ function normalizeImportedRecord(raw: any): Omit<ChecklistRecord, "id"> | null {
     templateId = v?.model ?? "UNKNOWN";
   }
 
-  if (templateVersion === null || templateVersion === undefined) {
-    templateVersion = 1;
-  }
+  if (templateVersion === null || templateVersion === undefined) templateVersion = 1;
 
   const answersRaw = Array.isArray(raw.answers) ? raw.answers : [];
   const answers = answersRaw
@@ -98,14 +87,11 @@ function normalizeImportedRecord(raw: any): Omit<ChecklistRecord, "id"> | null {
       key: String(a.key ?? ""),
       label: String(a.label ?? ""),
       type: a.type === "text" ? "text" : "yesno",
-      value:
-        a.type === "text"
-          ? String(a.value ?? "")
-          : a.value === "no"
-          ? "no"
-          : "yes",
+      value: a.type === "text" ? String(a.value ?? "") : a.value === "no" ? "no" : "yes",
     }))
     .filter((a: any) => a.key && a.label);
+
+  const modeDetail = String(raw.modeDetail ?? "").trim();
 
   return {
     vehicleCode,
@@ -113,20 +99,23 @@ function normalizeImportedRecord(raw: any): Omit<ChecklistRecord, "id"> | null {
     createdByRe,
     createdByRole,
     mode,
+    modeDetail,
     kmInitial,
     templateId,
     templateVersion,
     answers,
-  };
+  } as any;
 }
 
-
-function makeDedupeKey(c: {
-  vehicleCode: string;
-  createdAt: string;
-  createdByRe: string;
-}) {
+function makeDedupeKey(c: { vehicleCode: string; createdAt: string; createdByRe: string }) {
   return `${c.vehicleCode}|${c.createdAt}|${c.createdByRe}`;
+}
+
+function modeDisplay(c: any): string {
+  const mode = String(c?.mode ?? "(não informado)");
+  const detail = String(c?.modeDetail ?? "").trim();
+  if (mode === "Outros" && detail) return `Outros — ${detail}`;
+  return mode;
 }
 
 export default function AdminDashboardPage({
@@ -139,12 +128,15 @@ export default function AdminDashboardPage({
   const [all, setAll] = useState<ChecklistRecord[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // status PWA
+  const [swStatus, setSwStatus] = useState<string>("Verificando...");
+
   // filtros
-  const [filterVehicle, setFilterVehicle] = useState<string>(""); // vehicleCode
-  const [filterMode, setFilterMode] = useState<string>(""); // PolicingMode
-  const [filterRe, setFilterRe] = useState<string>(""); // parcial
-  const [dateFrom, setDateFrom] = useState<string>(""); // YYYY-MM-DD
-  const [dateTo, setDateTo] = useState<string>(""); // YYYY-MM-DD
+  const [filterVehicle, setFilterVehicle] = useState<string>("");
+  const [filterMode, setFilterMode] = useState<string>("");
+  const [filterRe, setFilterRe] = useState<string>("");
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
 
   // import
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -164,6 +156,32 @@ export default function AdminDashboardPage({
     refresh();
   }, []);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!("serviceWorker" in navigator)) {
+          setSwStatus("Service Worker: não suportado neste navegador.");
+          return;
+        }
+
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (!reg) {
+          setSwStatus("Service Worker: não registrado.");
+          return;
+        }
+
+        const active = !!reg.active;
+        const controller = !!navigator.serviceWorker.controller;
+
+        if (active && controller) setSwStatus("Service Worker: ativo (controlando o app).");
+        else if (active) setSwStatus("Service Worker: ativo (aguardando controle/refresh).");
+        else setSwStatus("Service Worker: registrado (sem worker ativo).");
+      } catch {
+        setSwStatus("Service Worker: falha ao verificar.");
+      }
+    })();
+  }, []);
+
   const totalsByVehicle = useMemo(() => {
     const map = new Map<string, number>();
     for (const c of all) map.set(c.vehicleCode, (map.get(c.vehicleCode) ?? 0) + 1);
@@ -173,13 +191,8 @@ export default function AdminDashboardPage({
   const filtered = useMemo(() => {
     let list = all;
 
-    if (filterVehicle) {
-      list = list.filter((c) => c.vehicleCode === filterVehicle);
-    }
-
-    if (filterMode) {
-      list = list.filter((c) => String((c as any).mode ?? "") === filterMode);
-    }
+    if (filterVehicle) list = list.filter((c) => c.vehicleCode === filterVehicle);
+    if (filterMode) list = list.filter((c) => String((c as any).mode ?? "") === filterMode);
 
     if (filterRe.trim()) {
       const re = filterRe.trim();
@@ -239,6 +252,7 @@ export default function AdminDashboardPage({
       "createdByRole",
       "createdByRe",
       "mode",
+      "modeDetail",
       "kmInitial",
       "templateId",
       "templateVersion",
@@ -255,11 +269,11 @@ export default function AdminDashboardPage({
       const obs = c.answers.find((a) => a.key === "obs")?.value ?? "";
 
       const mode = (c as any).mode ?? "";
+      const modeDetail = (c as any).modeDetail ?? "";
       const kmInitial = Number.isFinite((c as any).kmInitial) ? (c as any).kmInitial : "";
 
       const templateId = (c as any).templateId ?? "";
       const templateVersion = Number.isFinite((c as any).templateVersion) ? (c as any).templateVersion : "";
-
 
       lines.push(
         [
@@ -271,6 +285,7 @@ export default function AdminDashboardPage({
           c.createdByRole,
           c.createdByRe,
           csvEscape(String(mode)),
+          csvEscape(String(modeDetail)),
           csvEscape(String(kmInitial)),
           csvEscape(String(templateId)),
           csvEscape(String(templateVersion)),
@@ -286,7 +301,6 @@ export default function AdminDashboardPage({
     );
   }
 
-  // NOVO: CSV detalhado (1 linha por item do checklist)
   function exportCSVDetailed(data: ChecklistRecord[], scopeLabel: string) {
     const header = [
       "checklistId",
@@ -297,6 +311,7 @@ export default function AdminDashboardPage({
       "createdByRole",
       "createdByRe",
       "mode",
+      "modeDetail",
       "kmInitial",
       "templateId",
       "templateVersion",
@@ -314,6 +329,7 @@ export default function AdminDashboardPage({
       const plate = v?.plate ?? "";
 
       const mode = (c as any).mode ?? "";
+      const modeDetail = (c as any).modeDetail ?? "";
       const kmInitial = Number.isFinite((c as any).kmInitial) ? (c as any).kmInitial : "";
 
       const templateId = (c as any).templateId ?? "";
@@ -330,6 +346,7 @@ export default function AdminDashboardPage({
             c.createdByRole,
             c.createdByRe,
             csvEscape(String(mode)),
+            csvEscape(String(modeDetail)),
             csvEscape(String(kmInitial)),
             csvEscape(String(templateId)),
             csvEscape(String(templateVersion)),
@@ -349,7 +366,6 @@ export default function AdminDashboardPage({
     );
   }
 
-  // NOVO: Importar JSON (restore)
   async function handleImportFile(file: File) {
     setImportStatus("Importando...");
 
@@ -357,25 +373,15 @@ export default function AdminDashboardPage({
       const text = await file.text();
       const parsed = JSON.parse(text);
 
-      // Aceita dois formatos:
-      // 1) { data: [...] }
-      // 2) [ ... ]
-      const rawList: any[] = Array.isArray(parsed)
-        ? parsed
-        : Array.isArray(parsed?.data)
-        ? parsed.data
-        : [];
+      const rawList: any[] = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.data) ? parsed.data : [];
 
       if (!Array.isArray(rawList) || rawList.length === 0) {
         setImportStatus("Arquivo JSON não contém lista de checklists (data vazia).");
         return;
       }
 
-      // Monta set de chaves existentes para evitar duplicatas
       const existing = await db.checklists.toArray();
-      const existingKeys = new Set<string>(
-        existing.map((c) => makeDedupeKey(c))
-      );
+      const existingKeys = new Set<string>(existing.map((c) => makeDedupeKey(c)));
 
       let parsedCount = 0;
       let addedCount = 0;
@@ -393,14 +399,14 @@ export default function AdminDashboardPage({
 
         parsedCount++;
 
-        const key = makeDedupeKey(normalized);
+        const key = makeDedupeKey(normalized as any);
         if (existingKeys.has(key)) {
           skippedDup++;
           continue;
         }
 
         existingKeys.add(key);
-        toAdd.push(normalized);
+        toAdd.push(normalized as any);
       }
 
       if (toAdd.length > 0) {
@@ -424,29 +430,87 @@ export default function AdminDashboardPage({
     fileInputRef.current?.click();
   }
 
+  const card: React.CSSProperties = {
+    border: "1px solid var(--border)",
+    borderRadius: 12,
+    padding: 16,
+    background: "var(--bg-surface)",
+  };
+
+  const btn: React.CSSProperties = {
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    background: "var(--bg)",
+    color: "var(--text)",
+    cursor: "pointer",
+    minHeight: 44,
+    fontWeight: 700,
+  };
+
+  const btnPrimary: React.CSSProperties = {
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    background: "var(--bg-surface-2)",
+    color: "var(--text)",
+    cursor: "pointer",
+    minHeight: 44,
+    fontWeight: 900,
+  };
+
+  const input: React.CSSProperties = {
+    width: "100%",
+    padding: 10,
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    background: "var(--bg-surface-2)",
+    color: "var(--text)",
+    boxSizing: "border-box",
+    outline: "none",
+    minHeight: 44,
+  };
+
+  const label: React.CSSProperties = {
+    fontWeight: 900,
+    marginBottom: 6,
+    color: "var(--text)",
+  };
+
+  const help: React.CSSProperties = {
+    fontSize: 12,
+    color: "var(--text-muted)",
+    marginTop: 8,
+    lineHeight: 1.35,
+  };
+
   return (
-    <div style={{ maxWidth: 980, margin: "0 auto", padding: 16 }}>
-      <button
-        onClick={onBack}
-        style={{
-          padding: "8px 10px",
-          borderRadius: 10,
-          border: "1px solid #cbd5e1",
-          background: "#0f172a",
-          cursor: "pointer",
-        }}
-      >
+    <div style={{ maxWidth: 980, margin: "0 auto", padding: 16, color: "var(--text)" }}>
+      <button onClick={onBack} style={btn}>
         ← Voltar
       </button>
 
-      <h2 style={{ marginTop: 12 }}>Dashboard (Admin)</h2>
-      <p style={{ marginTop: 0, opacity: 0.85 }}>
-        Total de checklists salvos: <b>{all.length}</b> • Mostrando (com filtros):{" "}
-        <b>{filtered.length}</b>
+      <h2 style={{ marginTop: 12, marginBottom: 6, color: "var(--text)" }}>Dashboard (Admin)</h2>
+      <p style={{ marginTop: 0, color: "var(--text-muted)" }}>
+        Total de checklists salvos: <b style={{ color: "var(--text)" }}>{all.length}</b> • Mostrando (com filtros):{" "}
+        <b style={{ color: "var(--text)" }}>{filtered.length}</b>
         {loading ? " • Carregando..." : ""}
       </p>
 
-      {/* Import (input escondido) */}
+      {/* Status do App */}
+      <section style={{ ...card, marginBottom: 16 }}>
+        <h3 style={{ marginTop: 0, color: "var(--text)" }}>Status do App</h3>
+        <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5 }}>
+          <div>
+            Versão: <b style={{ color: "var(--text)" }}>{APP_VERSION}</b>
+          </div>
+          <div>{swStatus}</div>
+        </div>
+        <div style={help}>
+          Dica: para validar PWA, teste no <b style={{ color: "var(--text)" }}>npm run preview</b> (porta 4173).
+        </div>
+      </section>
+
       <input
         ref={fileInputRef}
         type="file"
@@ -454,158 +518,72 @@ export default function AdminDashboardPage({
         style={{ display: "none" }}
         onChange={(e) => {
           const f = e.target.files?.[0];
-          // permitir importar o mesmo arquivo duas vezes (reset)
           e.currentTarget.value = "";
           if (f) handleImportFile(f);
         }}
       />
 
-      {/* Export / Import */}
-      <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0 }}>Backup (exportar / importar)</h3>
+      <section style={{ ...card, marginBottom: 16 }}>
+        <h3 style={{ marginTop: 0, color: "var(--text)" }}>Backup (exportar / importar)</h3>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button
-            onClick={() => exportJSON(filtered, "filtrado")}
-            style={{
-              padding: "8px 10px",
-              borderRadius: 10,
-              border: "1px solid #0f172a",
-              background: "#0f172a",
-              color: "white",
-              cursor: "pointer",
-            }}
-          >
+          <button onClick={() => exportJSON(filtered, "filtrado")} style={btnPrimary}>
             Exportar JSON (filtrado)
           </button>
 
-          <button
-            onClick={() => exportJSON(all, "tudo")}
-            style={{
-              padding: "8px 10px",
-              borderRadius: 10,
-              border: "1px solid #0f172a",
-              background: "white",
-              color: "#0f172a",
-              cursor: "pointer",
-            }}
-          >
+          <button onClick={() => exportJSON(all, "tudo")} style={btn}>
             Exportar JSON (tudo)
           </button>
 
-          <button
-            onClick={clickImport}
-            style={{
-              padding: "8px 10px",
-              borderRadius: 10,
-              border: "1px solid #0f172a",
-              background: "white",
-              color: "#0f172a",
-              cursor: "pointer",
-            }}
-          >
+          <button onClick={clickImport} style={btn}>
             Importar backup JSON
           </button>
         </div>
 
         {importStatus && (
-          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.85 }}>
-            {importStatus}
-          </div>
+          <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-muted)" }}>{importStatus}</div>
         )}
 
-        <div style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>
+        <div style={help}>
           Importação adiciona registros que não existiam ainda. Duplicados são ignorados (por viatura + data/hora + RE).
         </div>
       </section>
 
-      {/* Export CSV */}
-      <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0 }}>Exportar CSV (Excel)</h3>
+      <section style={{ ...card, marginBottom: 16 }}>
+        <h3 style={{ marginTop: 0, color: "var(--text)" }}>Exportar CSV (Excel)</h3>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button
-            onClick={() => exportCSVSummary(filtered, "filtrado")}
-            style={{
-              padding: "8px 10px",
-              borderRadius: 10,
-              border: "1px solid #0f172a",
-              background: "#0f172a",
-              color: "white",
-              cursor: "pointer",
-            }}
-          >
+          <button onClick={() => exportCSVSummary(filtered, "filtrado")} style={btnPrimary}>
             CSV resumo (filtrado)
           </button>
 
-          <button
-            onClick={() => exportCSVDetailed(filtered, "filtrado")}
-            style={{
-              padding: "8px 10px",
-              borderRadius: 10,
-              border: "1px solid #0f172a",
-              background: "white",
-              color: "#0f172a",
-              cursor: "pointer",
-            }}
-          >
+          <button onClick={() => exportCSVDetailed(filtered, "filtrado")} style={btn}>
             CSV detalhado (filtrado)
           </button>
 
           <span style={{ width: 16 }} />
 
-          <button
-            onClick={() => exportCSVSummary(all, "tudo")}
-            style={{
-              padding: "8px 10px",
-              borderRadius: 10,
-              border: "1px solid #0f172a",
-              background: "white",
-              color: "#0f172a",
-              cursor: "pointer",
-            }}
-          >
+          <button onClick={() => exportCSVSummary(all, "tudo")} style={btn}>
             CSV resumo (tudo)
           </button>
 
-          <button
-            onClick={() => exportCSVDetailed(all, "tudo")}
-            style={{
-              padding: "8px 10px",
-              borderRadius: 10,
-              border: "1px solid #0f172a",
-              background: "white",
-              color: "#0f172a",
-              cursor: "pointer",
-            }}
-          >
+          <button onClick={() => exportCSVDetailed(all, "tudo")} style={btn}>
             CSV detalhado (tudo)
           </button>
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.75, marginTop: 8 }}>
+        <div style={help}>
           Resumo = 1 linha por checklist. Detalhado = 1 linha por item do checklist (melhor para auditoria/estatística).
         </div>
       </section>
 
-      {/* Filtros */}
-      <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0 }}>Filtros</h3>
+      <section style={{ ...card, marginBottom: 16 }}>
+        <h3 style={{ marginTop: 0, color: "var(--text)" }}>Filtros</h3>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 12,
-          }}
-        >
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
           <div>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Viatura</div>
-            <select
-              value={filterVehicle}
-              onChange={(e) => setFilterVehicle(e.target.value)}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid #cbd5e1" }}
-            >
+            <div style={label}>Viatura</div>
+            <select value={filterVehicle} onChange={(e) => setFilterVehicle(e.target.value)} style={input}>
               <option value="">(todas)</option>
               {FIXED_VEHICLES.map((v) => (
                 <option key={v.code} value={v.code}>
@@ -616,12 +594,8 @@ export default function AdminDashboardPage({
           </div>
 
           <div>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Modalidade</div>
-            <select
-              value={filterMode}
-              onChange={(e) => setFilterMode(e.target.value)}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid #cbd5e1" }}
-            >
+            <div style={label}>Modalidade</div>
+            <select value={filterMode} onChange={(e) => setFilterMode(e.target.value)} style={input}>
               <option value="">(todas)</option>
               {MODES.map((m) => (
                 <option key={m} value={m}>
@@ -632,71 +606,40 @@ export default function AdminDashboardPage({
           </div>
 
           <div>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>RE (contém)</div>
+            <div style={label}>RE (contém)</div>
             <input
               value={filterRe}
               onChange={(e) => setFilterRe(e.target.value)}
               placeholder="Ex: 123 (acha 001234)"
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid #cbd5e1" }}
+              style={input}
               inputMode="numeric"
             />
           </div>
 
           <div>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Data (de)</div>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid #cbd5e1" }}
-            />
+            <div style={label}>Data (de)</div>
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={input} />
           </div>
 
           <div>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Data (até)</div>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid #cbd5e1" }}
-            />
+            <div style={label}>Data (até)</div>
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={input} />
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-          <button
-            onClick={clearFilters}
-            style={{
-              padding: "8px 10px",
-              borderRadius: 10,
-              border: "1px solid #0f172a",
-              background: "white",
-              color: "#0f172a",
-              cursor: "pointer",
-            }}
-          >
+          <button onClick={clearFilters} style={btn}>
             Limpar filtros
           </button>
 
-          <button
-            onClick={refresh}
-            style={{
-              padding: "8px 10px",
-              borderRadius: 10,
-              border: "1px solid #0f172a",
-              background: "#0f172a",
-              color: "white",
-              cursor: "pointer",
-            }}
-          >
+          <button onClick={refresh} style={btn}>
             Atualizar dados
           </button>
         </div>
       </section>
 
-      {/* Resumo por viatura */}
-      <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0 }}>Resumo por viatura (total)</h3>
+      <section style={{ ...card, marginBottom: 16 }}>
+        <h3 style={{ marginTop: 0, color: "var(--text)" }}>Resumo por viatura (total)</h3>
         <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
           {FIXED_VEHICLES.map((v) => (
             <li
@@ -704,30 +647,29 @@ export default function AdminDashboardPage({
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                border: "1px solid #f1f5f9",
+                border: "1px solid var(--border)",
                 borderRadius: 10,
                 padding: 10,
+                background: "var(--bg)",
+                color: "var(--text)",
               }}
             >
               <span>
                 <b>{v.name}</b>{" "}
-                <span style={{ opacity: 0.7, fontSize: 12 }}>{v.plate ? `• ${v.plate}` : ""}</span>
+                <span style={{ color: "var(--text-muted)", fontSize: 12 }}>{v.plate ? `• ${v.plate}` : ""}</span>
               </span>
-              <span>{totalsByVehicle.get(v.code) ?? 0}</span>
+              <span style={{ fontWeight: 900 }}>{totalsByVehicle.get(v.code) ?? 0}</span>
             </li>
           ))}
         </ul>
-        <div style={{ fontSize: 12, opacity: 0.75, marginTop: 8 }}>
-          Observação: este resumo é do total armazenado. A lista abaixo é do total filtrado.
-        </div>
+        <div style={help}>Observação: este resumo é do total armazenado. A lista abaixo é do total filtrado.</div>
       </section>
 
-      {/* Lista */}
-      <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16 }}>
-        <h3 style={{ marginTop: 0 }}>Checklists (lista filtrada)</h3>
+      <section style={card}>
+        <h3 style={{ marginTop: 0, color: "var(--text)" }}>Checklists (lista filtrada)</h3>
 
         {filtered.length === 0 ? (
-          <p style={{ opacity: 0.8 }}>Nenhum checklist encontrado com os filtros atuais.</p>
+          <p style={{ color: "var(--text-muted)" }}>Nenhum checklist encontrado com os filtros atuais.</p>
         ) : (
           <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
             {filtered.map((c) => {
@@ -735,74 +677,47 @@ export default function AdminDashboardPage({
               const vehicleName = v?.name ?? c.vehicleCode;
               const plate = v?.plate ?? "";
 
-              const mode = (c as any).mode ?? "(não informado)";
               const kmInitial = Number.isFinite((c as any).kmInitial) ? (c as any).kmInitial : "(não informado)";
 
               const issue = hasIssues(c);
               const issueCount = countIssues(c);
 
               return (
-               <li
+                <li
                   key={c.id}
                   style={{
-                    border: issue ? "2px solid #dc2626" : "1px solid #e2e8f0",
+                    border: issue ? "2px solid var(--danger)" : "1px solid var(--border)",
                     borderRadius: 12,
                     padding: 12,
-                    background: issue ? "#fef2f2" : "white",
-                    color: "#0f172a",
+                    background: "var(--bg)",
+                    color: "var(--text)",
                   }}
                 >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: 12,
-                      alignItems: "center",
-                    }}
-                  >
-                  <div>
-                      <div style={{ fontWeight: 800, color: "#0f172a" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                    <div style={{ minWidth: 240 }}>
+                      <div style={{ fontWeight: 900, color: "var(--text)" }}>
                         {issue ? "⚠️ " : ""}
                         {vehicleName}{" "}
-                        <span style={{ fontSize: 12, color: "rgba(15,23,42,0.75)" }}>
-                          {plate ? `• ${plate}` : ""}
-                        </span>
+                        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{plate ? `• ${plate}` : ""}</span>
                       </div>
 
-                      <div style={{ fontSize: 12, color: "rgba(15,23,42,0.85)" }}>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
                         {new Date(c.createdAt).toLocaleString("pt-BR")} • {officerLabel(c.createdByRe)}
-
                       </div>
 
-                      <div style={{ fontSize: 12, color: "rgba(15,23,42,0.85)" }}>
-                        Modalidade: <b>{mode}</b> • Km Inicial: <b>{kmInitial}</b>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                        Modalidade: <b style={{ color: "var(--text)" }}>{modeDisplay(c as any)}</b> • Km Inicial:{" "}
+                        <b style={{ color: "var(--text)" }}>{kmInitial}</b>
                       </div>
 
                       {issue && (
-                        <div
-                          style={{
-                            marginTop: 6,
-                            fontSize: 12,
-                            fontWeight: 700,
-                            color: "#b91c1c",
-                          }}
-                        >
+                        <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900, color: "var(--danger)" }}>
                           ⚠️ {issueCount} apontamento(s) neste checklist
                         </div>
                       )}
                     </div>
 
-                    <button
-                      onClick={() => onOpenChecklist(c.id!)}
-                      style={{
-                        padding: "8px 10px",
-                        borderRadius: 10,
-                        border: "1px solid #0f172a",
-                        background: "white",
-                        color: "#0f172a",
-                        cursor: "pointer",
-                      }}
-                    >
+                    <button onClick={() => onOpenChecklist(c.id!)} style={btn}>
                       Abrir
                     </button>
                   </div>

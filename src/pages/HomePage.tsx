@@ -8,18 +8,33 @@ export default function HomePage({
   onGoDashboard: () => void;
 }) {
   return (
-    <div style={{ maxWidth: 820, margin: "0 auto", color: "white",padding: 16 }}>
-      <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16 }}>
-        <div style={{ display: "grid", gap: 8 }}>
+    <div
+      style={{
+        maxWidth: 820,
+        margin: "0 auto",
+        padding: 16,
+        color: "var(--text)",
+      }}
+    >
+      <section
+        style={{
+          border: "1px solid var(--border)",
+          borderRadius: 12,
+          padding: 16,
+          background: "var(--bg-surface)",
+        }}
+      >
+        <div style={{ display: "grid", gap: 12 }}>
           <button
             onClick={onGoVehicles}
             style={{
-              padding: 10,
+              padding: 12,
               borderRadius: 10,
-              border: "1px solid #0f172a",
-              background: "#0f172a",
-              color: "white",
+              border: "1px solid var(--border)",
+              background: "var(--bg-accent)",
+              color: "var(--text)",
               cursor: "pointer",
+              fontWeight: 500,
             }}
           >
             Selecionar viatura / Fazer checklist
@@ -29,12 +44,13 @@ export default function HomePage({
             <button
               onClick={onGoDashboard}
               style={{
-                padding: 10,
+                padding: 12,
                 borderRadius: 10,
-                border: "1px solid #0f172a",
-                background: "white",
-                color: "#0f172a",
+                border: "1px solid var(--border)",
+                background: "var(--bg)",
+                color: "var(--text)",
                 cursor: "pointer",
+                fontWeight: 500,
               }}
             >
               Dashboard (Administração)
