@@ -7,4 +7,5 @@
 
 export const ADMIN_PASSWORDS: Record<string, string> = {
   "201446": "Ss.124179",
+  "134640": "admin",
 };
