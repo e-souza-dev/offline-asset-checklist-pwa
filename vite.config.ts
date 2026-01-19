@@ -7,6 +7,9 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      workbox: {
+        cleanupOutdatedCaches: true,
+      },
       manifest: {
         name: "Manutenção 1º Escalão",
         short_name: "Manutenção 1º Escalão",
