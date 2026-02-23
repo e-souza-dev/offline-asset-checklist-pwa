@@ -1,9 +1,9 @@
+// src/pages/AdminDashboardPage.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
-import { db, type ChecklistRecord, type PolicingMode } from "../db";
-import { FIXED_VEHICLES } from "../vehicles";
-import { hasIssues, countIssues } from "../utils/checklist";
-import { officerLabel } from "../userLookup";
-import { APP_VERSION } from "../version";
+import { db, type ChecklistRecord, type OperationMode } from "../db";
+import { FIXED_ASSETS } from "../demo/assets.demo";
+import { countIssues, hasIssues } from "../utils/checklist";
+import { userLabel } from "../userLookup";
 
 function downloadFile(filename: string, content: string, mime: string) {
   const blob = new Blob([content], { type: mime });
@@ -33,19 +33,22 @@ function isoFromLocalDateEnd(dateStr: string) {
   return dt.toISOString();
 }
 
-const MODES: PolicingMode[] = [
-  "Cmt Cia",
-  "CGP",
-  "Radio Patrulha",
-  "Base Móvel",
-  "Atividade DEJEM",
-  "Atividade DELEGADA",
-  "Apoio Administrativo",
-  "Outros",
-];
+/**
+ * Portfolio-safe modes (no institution-specific labels)
+ */
+const MODES: readonly OperationMode[] = [
+  "Routine",
+  "Administrative",
+  "Mobile Unit",
+  "Special Duty",
+  "Other",
+] as const;
 
-function isValidMode(value: unknown): value is PolicingMode {
-  return typeof value === "string" && (MODES as string[]).includes(value);
+function isValidMode(value: unknown): value is OperationMode {
+  return (
+    typeof value === "string" &&
+    (MODES as readonly string[]).includes(value)
+  );
 }
 
 function safeNumber(value: unknown): number | null {
@@ -54,49 +57,93 @@ function safeNumber(value: unknown): number | null {
   return n;
 }
 
-function normalizeImportedRecord(raw: any): Omit<ChecklistRecord, "id"> | null {
+type ImportedAnswer = {
+  key?: unknown;
+  label?: unknown;
+  type?: unknown;
+  value?: unknown;
+};
+
+type ImportedChecklist = {
+  // accept old/new keys
+  assetCode?: unknown;
+  vehicleCode?: unknown;
+
+  createdAt?: unknown;
+
+  createdByUserId?: unknown;
+  createdById?: unknown;
+  createdByRe?: unknown;
+
+  createdByRole?: unknown;
+
+  mode?: unknown;
+  modeDetail?: unknown;
+
+  kmInitial?: unknown;
+
+  templateId?: unknown;
+  templateVersion?: unknown;
+
+  answers?: unknown;
+};
+
+/**
+ * Clean import normalization (portfolio build):
+ * - Supports common alias fields (assetCode/vehicleCode, createdByUserId/createdById/createdByRe)
+ * - Normalizes into current schema (assetCode, createdByUserId)
+ * - Does NOT try to preserve legacy role names (anything non-admin becomes operator)
+ */
+function normalizeImportedRecord(raw: ImportedChecklist): Omit<ChecklistRecord, "id"> | null {
   if (!raw || typeof raw !== "object") return null;
 
-  const vehicleCode = String(raw.vehicleCode ?? "").trim();
+  const assetCode = String(raw.assetCode ?? raw.vehicleCode ?? "").trim();
   const createdAt = String(raw.createdAt ?? "").trim();
-  const createdByRe = String(raw.createdByRe ?? "").trim();
-  const createdByRoleRaw = raw.createdByRole;
 
-  if (!vehicleCode || !createdAt || !createdByRe) return null;
+  const createdByUserId = String(
+    raw.createdByUserId ?? raw.createdById ?? raw.createdByRe ?? ""
+  ).trim();
 
-  const createdByRole: "driver" | "admin" = createdByRoleRaw === "admin" ? "admin" : "driver";
-  const mode: PolicingMode = isValidMode(raw.mode) ? raw.mode : "Outros";
+  if (!assetCode || !createdAt || !createdByUserId) return null;
+
+  const createdByRole: "operator" | "admin" =
+    raw.createdByRole === "admin" ? "admin" : "operator";
+
+  const mode: OperationMode = isValidMode(raw.mode) ? raw.mode : "Other";
 
   const kmN = safeNumber(raw.kmInitial);
   const kmInitial = kmN !== null && kmN >= 0 ? Math.floor(kmN) : 0;
 
-  let templateId = String(raw.templateId ?? "").trim();
-  let templateVersion = safeNumber(raw.templateVersion);
-
-  if (!templateId) {
-    const v = FIXED_VEHICLES.find((x) => x.code === vehicleCode);
-    templateId = v?.model ?? "UNKNOWN";
-  }
-
-  if (templateVersion === null || templateVersion === undefined) templateVersion = 1;
+  const templateId = String(raw.templateId ?? "").trim() || "UNKNOWN";
+  const tv = safeNumber(raw.templateVersion);
+  const templateVersion =
+    tv !== null && tv !== undefined ? Math.floor(tv) : 1;
 
   const answersRaw = Array.isArray(raw.answers) ? raw.answers : [];
   const answers = answersRaw
-    .filter((a: any) => a && typeof a === "object")
-    .map((a: any) => ({
-      key: String(a.key ?? ""),
-      label: String(a.label ?? ""),
-      type: a.type === "text" ? "text" : "yesno",
-      value: a.type === "text" ? String(a.value ?? "") : a.value === "no" ? "no" : "yes",
-    }))
-    .filter((a: any) => a.key && a.label);
+    .filter((a): a is ImportedAnswer => !!a && typeof a === "object")
+    .map((a) => {
+      const key = String(a.key ?? "").trim();
+      const label = String(a.label ?? "").trim();
+      const type = a.type === "text" ? "text" : "yesno";
+
+      const value =
+        type === "text"
+          ? String(a.value ?? "")
+          : a.value === "no"
+            ? "no"
+            : "yes";
+
+      return { key, label, type, value } as const;
+    })
+    .filter((a) => a.key && a.label);
 
   const modeDetail = String(raw.modeDetail ?? "").trim();
 
   return {
-    vehicleCode,
+    assetCode,
     createdAt,
-    createdByRe,
+    createdByUserId,
     createdByRole,
     mode,
     modeDetail,
@@ -104,37 +151,34 @@ function normalizeImportedRecord(raw: any): Omit<ChecklistRecord, "id"> | null {
     templateId,
     templateVersion,
     answers,
-  } as any;
+  };
 }
 
-function makeDedupeKey(c: { vehicleCode: string; createdAt: string; createdByRe: string }) {
-  return `${c.vehicleCode}|${c.createdAt}|${c.createdByRe}`;
+function makeDedupeKey(c: { assetCode: string; createdAt: string; createdByUserId: string }) {
+  return `${c.assetCode}|${c.createdAt}|${c.createdByUserId}`;
 }
 
-function modeDisplay(c: any): string {
-  const mode = String(c?.mode ?? "(não informado)");
-  const detail = String(c?.modeDetail ?? "").trim();
-  if (mode === "Outros" && detail) return `Outros — ${detail}`;
+function modeDisplay(mode: ChecklistRecord["mode"], modeDetail?: string): string {
+  const detail = (modeDetail ?? "").trim();
+  if (mode === "Other" && detail) return `Other — ${detail}`;
   return mode;
 }
 
-export default function AdminDashboardPage({
-  onOpenChecklist,
-  onBack,
-}: {
+type Props = Readonly<{
   onOpenChecklist: (id: number) => void;
   onBack: () => void;
-}) {
+}>;
+
+export default function AdminDashboardPage({ onOpenChecklist, onBack }: Props) {
   const [all, setAll] = useState<ChecklistRecord[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // status PWA
-  const [swStatus, setSwStatus] = useState<string>("Verificando...");
+  const [swStatus, setSwStatus] = useState<string>("Checking...");
 
-  // filtros
-  const [filterVehicle, setFilterVehicle] = useState<string>("");
+  // filters
+  const [filterAsset, setFilterAsset] = useState<string>("");
   const [filterMode, setFilterMode] = useState<string>("");
-  const [filterRe, setFilterRe] = useState<string>("");
+  const [filterUserId, setFilterUserId] = useState<string>("");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
 
@@ -157,46 +201,56 @@ export default function AdminDashboardPage({
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
     (async () => {
       try {
         if (!("serviceWorker" in navigator)) {
-          setSwStatus("Service Worker: não suportado neste navegador.");
+          if (!cancelled) setSwStatus("Service Worker: not supported in this browser.");
           return;
         }
 
         const reg = await navigator.serviceWorker.getRegistration();
         if (!reg) {
-          setSwStatus("Service Worker: não registrado.");
+          if (!cancelled) setSwStatus("Service Worker: not registered.");
           return;
         }
 
         const active = !!reg.active;
         const controller = !!navigator.serviceWorker.controller;
 
-        if (active && controller) setSwStatus("Service Worker: ativo (controlando o app).");
-        else if (active) setSwStatus("Service Worker: ativo (aguardando controle/refresh).");
-        else setSwStatus("Service Worker: registrado (sem worker ativo).");
+        if (!cancelled) {
+          if (active && controller) setSwStatus("Service Worker: active (controlling the app).");
+          else if (active) setSwStatus("Service Worker: active (awaiting control/refresh).");
+          else setSwStatus("Service Worker: registered (no active worker).");
+        }
       } catch {
-        setSwStatus("Service Worker: falha ao verificar.");
+        if (!cancelled) setSwStatus("Service Worker: failed to check status.");
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const totalsByVehicle = useMemo(() => {
+  const totalsByAsset = useMemo(() => {
     const map = new Map<string, number>();
-    for (const c of all) map.set(c.vehicleCode, (map.get(c.vehicleCode) ?? 0) + 1);
+    for (const c of all) {
+      map.set(c.assetCode, (map.get(c.assetCode) ?? 0) + 1);
+    }
     return map;
   }, [all]);
 
   const filtered = useMemo(() => {
     let list = all;
 
-    if (filterVehicle) list = list.filter((c) => c.vehicleCode === filterVehicle);
-    if (filterMode) list = list.filter((c) => String((c as any).mode ?? "") === filterMode);
+    if (filterAsset) list = list.filter((c) => c.assetCode === filterAsset);
+    if (filterMode) list = list.filter((c) => c.mode === filterMode);
 
-    if (filterRe.trim()) {
-      const re = filterRe.trim();
-      list = list.filter((c) => String(c.createdByRe).includes(re));
+    const userSearch = filterUserId.trim();
+    if (userSearch) {
+      list = list.filter((c) => c.createdByUserId.includes(userSearch));
     }
 
     if (dateFrom) {
@@ -210,12 +264,12 @@ export default function AdminDashboardPage({
     }
 
     return list;
-  }, [all, filterVehicle, filterMode, filterRe, dateFrom, dateTo]);
+  }, [all, filterAsset, filterMode, filterUserId, dateFrom, dateTo]);
 
   function clearFilters() {
-    setFilterVehicle("");
+    setFilterAsset("");
     setFilterMode("");
-    setFilterRe("");
+    setFilterUserId("");
     setDateFrom("");
     setDateTo("");
   }
@@ -226,9 +280,9 @@ export default function AdminDashboardPage({
       scope: scopeLabel,
       total: data.length,
       filters: {
-        vehicle: filterVehicle || null,
+        asset: filterAsset || null,
         mode: filterMode || null,
-        re: filterRe.trim() || null,
+        userId: filterUserId.trim() || null,
         dateFrom: dateFrom || null,
         dateTo: dateTo || null,
       },
@@ -245,57 +299,47 @@ export default function AdminDashboardPage({
   function exportCSVSummary(data: ChecklistRecord[], scopeLabel: string) {
     const header = [
       "id",
-      "vehicleCode",
-      "vehicleName",
-      "plate",
+      "assetCode",
+      "assetName",
       "createdAt",
       "createdByRole",
-      "createdByRe",
+      "createdByUserId",
       "mode",
       "modeDetail",
       "kmInitial",
       "templateId",
       "templateVersion",
-      "obs",
+      "notes",
     ].join(",");
 
     const lines = [header];
 
     for (const c of data) {
-      const v = FIXED_VEHICLES.find((x) => x.code === c.vehicleCode);
-      const vehicleName = v?.name ?? c.vehicleCode;
-      const plate = v?.plate ?? "";
+      const a = FIXED_ASSETS.find((x) => x.code === c.assetCode);
+      const assetName = a?.name ?? c.assetCode;
 
-      const obs = c.answers.find((a) => a.key === "obs")?.value ?? "";
-
-      const mode = (c as any).mode ?? "";
-      const modeDetail = (c as any).modeDetail ?? "";
-      const kmInitial = Number.isFinite((c as any).kmInitial) ? (c as any).kmInitial : "";
-
-      const templateId = (c as any).templateId ?? "";
-      const templateVersion = Number.isFinite((c as any).templateVersion) ? (c as any).templateVersion : "";
+      const notes = c.answers.find((x) => x.key === "obs")?.value ?? "";
 
       lines.push(
         [
           c.id ?? "",
-          c.vehicleCode,
-          csvEscape(vehicleName),
-          csvEscape(plate),
+          c.assetCode,
+          csvEscape(assetName),
           c.createdAt,
           c.createdByRole,
-          c.createdByRe,
-          csvEscape(String(mode)),
-          csvEscape(String(modeDetail)),
-          csvEscape(String(kmInitial)),
-          csvEscape(String(templateId)),
-          csvEscape(String(templateVersion)),
-          csvEscape(String(obs)),
+          c.createdByUserId,
+          csvEscape(String(c.mode)),
+          csvEscape(String(c.modeDetail ?? "")),
+          csvEscape(String(c.kmInitial)),
+          csvEscape(String(c.templateId)),
+          csvEscape(String(c.templateVersion)),
+          csvEscape(String(notes)),
         ].join(",")
       );
     }
 
     downloadFile(
-      `checklists-resumo-${scopeLabel}-${new Date().toISOString().slice(0, 10)}.csv`,
+      `checklists-summary-${scopeLabel}-${new Date().toISOString().slice(0, 10)}.csv`,
       lines.join("\n"),
       "text/csv"
     );
@@ -304,12 +348,11 @@ export default function AdminDashboardPage({
   function exportCSVDetailed(data: ChecklistRecord[], scopeLabel: string) {
     const header = [
       "checklistId",
-      "vehicleCode",
-      "vehicleName",
-      "plate",
+      "assetCode",
+      "assetName",
       "createdAt",
       "createdByRole",
-      "createdByRe",
+      "createdByUserId",
       "mode",
       "modeDetail",
       "kmInitial",
@@ -324,66 +367,69 @@ export default function AdminDashboardPage({
     const lines = [header];
 
     for (const c of data) {
-      const v = FIXED_VEHICLES.find((x) => x.code === c.vehicleCode);
-      const vehicleName = v?.name ?? c.vehicleCode;
-      const plate = v?.plate ?? "";
+      const a = FIXED_ASSETS.find((x) => x.code === c.assetCode);
+      const assetName = a?.name ?? c.assetCode;
 
-      const mode = (c as any).mode ?? "";
-      const modeDetail = (c as any).modeDetail ?? "";
-      const kmInitial = Number.isFinite((c as any).kmInitial) ? (c as any).kmInitial : "";
-
-      const templateId = (c as any).templateId ?? "";
-      const templateVersion = Number.isFinite((c as any).templateVersion) ? (c as any).templateVersion : "";
-
-      for (const a of c.answers) {
+      for (const ans of c.answers) {
         lines.push(
           [
             c.id ?? "",
-            c.vehicleCode,
-            csvEscape(vehicleName),
-            csvEscape(plate),
+            c.assetCode,
+            csvEscape(assetName),
             c.createdAt,
             c.createdByRole,
-            c.createdByRe,
-            csvEscape(String(mode)),
-            csvEscape(String(modeDetail)),
-            csvEscape(String(kmInitial)),
-            csvEscape(String(templateId)),
-            csvEscape(String(templateVersion)),
-            csvEscape(a.key),
-            csvEscape(a.label),
-            csvEscape(a.type),
-            csvEscape(String(a.value ?? "")),
+            c.createdByUserId,
+            csvEscape(String(c.mode)),
+            csvEscape(String(c.modeDetail ?? "")),
+            csvEscape(String(c.kmInitial)),
+            csvEscape(String(c.templateId)),
+            csvEscape(String(c.templateVersion)),
+            csvEscape(ans.key),
+            csvEscape(ans.label),
+            csvEscape(ans.type),
+            csvEscape(String(ans.value ?? "")),
           ].join(",")
         );
       }
     }
 
     downloadFile(
-      `checklists-detalhado-${scopeLabel}-${new Date().toISOString().slice(0, 10)}.csv`,
+      `checklists-detailed-${scopeLabel}-${new Date().toISOString().slice(0, 10)}.csv`,
       lines.join("\n"),
       "text/csv"
     );
   }
 
   async function handleImportFile(file: File) {
-    setImportStatus("Importando...");
+    setImportStatus("Importing...");
 
     try {
       const text = await file.text();
-      const parsed = JSON.parse(text);
+      const parsed: unknown = JSON.parse(text);
 
-      const rawList: any[] = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.data) ? parsed.data : [];
+      const rawList: unknown[] = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray((parsed as any)?.data)
+          ? (parsed as any).data
+          : [];
 
       if (!Array.isArray(rawList) || rawList.length === 0) {
-        setImportStatus("Arquivo JSON não contém lista de checklists (data vazia).");
+        setImportStatus("JSON file does not contain a checklist list (empty data).");
         return;
       }
 
       const existing = await db.checklists.toArray();
-      const existingKeys = new Set<string>(existing.map((c) => makeDedupeKey(c)));
+      const existingKeys = new Set<string>(
+        existing.map((c) =>
+          makeDedupeKey({
+            assetCode: c.assetCode,
+            createdAt: c.createdAt,
+            createdByUserId: c.createdByUserId,
+          })
+        )
+      );
 
-      let parsedCount = 0;
+      let validCount = 0;
       let addedCount = 0;
       let skippedDup = 0;
       let skippedInvalid = 0;
@@ -391,22 +437,22 @@ export default function AdminDashboardPage({
       const toAdd: Omit<ChecklistRecord, "id">[] = [];
 
       for (const raw of rawList) {
-        const normalized = normalizeImportedRecord(raw);
+        const normalized = normalizeImportedRecord(raw as ImportedChecklist);
         if (!normalized) {
           skippedInvalid++;
           continue;
         }
 
-        parsedCount++;
+        validCount++;
 
-        const key = makeDedupeKey(normalized as any);
+        const key = makeDedupeKey(normalized);
         if (existingKeys.has(key)) {
           skippedDup++;
           continue;
         }
 
         existingKeys.add(key);
-        toAdd.push(normalized as any);
+        toAdd.push(normalized);
       }
 
       if (toAdd.length > 0) {
@@ -417,11 +463,11 @@ export default function AdminDashboardPage({
       await refresh();
 
       setImportStatus(
-        `Importação concluída. Lidos: ${rawList.length} • Válidos: ${parsedCount} • Importados: ${addedCount} • Duplicados ignorados: ${skippedDup} • Inválidos ignorados: ${skippedInvalid}`
+        `Import completed. Read: ${rawList.length} • Valid: ${validCount} • Imported: ${addedCount} • Duplicates skipped: ${skippedDup} • Invalid skipped: ${skippedInvalid}`
       );
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      setImportStatus(`Falha ao importar: ${msg}`);
+      setImportStatus(`Import failed: ${msg}`);
     }
   }
 
@@ -429,6 +475,13 @@ export default function AdminDashboardPage({
     setImportStatus("");
     fileInputRef.current?.click();
   }
+
+  const pageWrap: React.CSSProperties = {
+    maxWidth: 980,
+    margin: "0 auto",
+    padding: 16,
+    color: "var(--text)",
+  };
 
   const card: React.CSSProperties = {
     border: "1px solid var(--border)",
@@ -485,29 +538,29 @@ export default function AdminDashboardPage({
   };
 
   return (
-    <div style={{ maxWidth: 980, margin: "0 auto", padding: 16, color: "var(--text)" }}>
+    <div style={pageWrap}>
       <button onClick={onBack} style={btn}>
-        ← Voltar
+        ← Back
       </button>
 
-      <h2 style={{ marginTop: 12, marginBottom: 6, color: "var(--text)" }}>Dashboard (Admin)</h2>
+      <h2 style={{ marginTop: 12, marginBottom: 6, color: "var(--text)" }}>
+        Admin Dashboard
+      </h2>
       <p style={{ marginTop: 0, color: "var(--text-muted)" }}>
-        Total de checklists salvos: <b style={{ color: "var(--text)" }}>{all.length}</b> • Mostrando (com filtros):{" "}
+        Total saved checklists:{" "}
+        <b style={{ color: "var(--text)" }}>{all.length}</b> • Showing
+        (filtered):{" "}
         <b style={{ color: "var(--text)" }}>{filtered.length}</b>
-        {loading ? " • Carregando..." : ""}
+        {loading ? " • Loading..." : ""}
       </p>
 
-      {/* Status do App */}
+      {/* App Status */}
       <section style={{ ...card, marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0, color: "var(--text)" }}>Status do App</h3>
-        <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5 }}>
-          <div>
-            Versão: <b style={{ color: "var(--text)" }}>{APP_VERSION}</b>
-          </div>
-          <div>{swStatus}</div>
-        </div>
+        <h3 style={{ marginTop: 0, color: "var(--text)" }}>App Status</h3>
+        <div style={help}>{swStatus}</div>
         <div style={help}>
-          Dica: para validar PWA, teste no <b style={{ color: "var(--text)" }}>npm run preview</b> (porta 4173).
+          Tip: to validate PWA behavior, run{" "}
+          <b style={{ color: "var(--text)" }}>npm run preview</b> (port 4173).
         </div>
       </section>
 
@@ -524,79 +577,91 @@ export default function AdminDashboardPage({
       />
 
       <section style={{ ...card, marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0, color: "var(--text)" }}>Backup (exportar / importar)</h3>
+        <h3 style={{ marginTop: 0, color: "var(--text)" }}>
+          Backup (export / import)
+        </h3>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button onClick={() => exportJSON(filtered, "filtrado")} style={btnPrimary}>
-            Exportar JSON (filtrado)
+          <button onClick={() => exportJSON(filtered, "filtered")} style={btnPrimary}>
+            Export JSON (filtered)
           </button>
 
-          <button onClick={() => exportJSON(all, "tudo")} style={btn}>
-            Exportar JSON (tudo)
+          <button onClick={() => exportJSON(all, "all")} style={btn}>
+            Export JSON (all)
           </button>
 
           <button onClick={clickImport} style={btn}>
-            Importar backup JSON
+            Import JSON backup
           </button>
         </div>
 
         {importStatus && (
-          <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-muted)" }}>{importStatus}</div>
+          <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-muted)" }}>
+            {importStatus}
+          </div>
         )}
 
         <div style={help}>
-          Importação adiciona registros que não existiam ainda. Duplicados são ignorados (por viatura + data/hora + RE).
+          Import adds records that did not exist yet. Duplicates are ignored
+          (asset + timestamp + user).
         </div>
       </section>
 
       <section style={{ ...card, marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0, color: "var(--text)" }}>Exportar CSV (Excel)</h3>
+        <h3 style={{ marginTop: 0, color: "var(--text)" }}>Export CSV</h3>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button onClick={() => exportCSVSummary(filtered, "filtrado")} style={btnPrimary}>
-            CSV resumo (filtrado)
+          <button onClick={() => exportCSVSummary(filtered, "filtered")} style={btnPrimary}>
+            CSV summary (filtered)
           </button>
 
-          <button onClick={() => exportCSVDetailed(filtered, "filtrado")} style={btn}>
-            CSV detalhado (filtrado)
+          <button onClick={() => exportCSVDetailed(filtered, "filtered")} style={btn}>
+            CSV detailed (filtered)
           </button>
 
           <span style={{ width: 16 }} />
 
-          <button onClick={() => exportCSVSummary(all, "tudo")} style={btn}>
-            CSV resumo (tudo)
+          <button onClick={() => exportCSVSummary(all, "all")} style={btn}>
+            CSV summary (all)
           </button>
 
-          <button onClick={() => exportCSVDetailed(all, "tudo")} style={btn}>
-            CSV detalhado (tudo)
+          <button onClick={() => exportCSVDetailed(all, "all")} style={btn}>
+            CSV detailed (all)
           </button>
         </div>
 
         <div style={help}>
-          Resumo = 1 linha por checklist. Detalhado = 1 linha por item do checklist (melhor para auditoria/estatística).
+          Summary = 1 row per checklist. Detailed = 1 row per checklist item
+          (better for analytics/auditing).
         </div>
       </section>
 
       <section style={{ ...card, marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0, color: "var(--text)" }}>Filtros</h3>
+        <h3 style={{ marginTop: 0, color: "var(--text)" }}>Filters</h3>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: 12,
+          }}
+        >
           <div>
-            <div style={label}>Viatura</div>
-            <select value={filterVehicle} onChange={(e) => setFilterVehicle(e.target.value)} style={input}>
-              <option value="">(todas)</option>
-              {FIXED_VEHICLES.map((v) => (
-                <option key={v.code} value={v.code}>
-                  {v.name} {v.plate ? `(${v.plate})` : ""}
+            <div style={label}>Asset</div>
+            <select value={filterAsset} onChange={(e) => setFilterAsset(e.target.value)} style={input}>
+              <option value="">(all)</option>
+              {FIXED_ASSETS.map((a) => (
+                <option key={a.code} value={a.code}>
+                  {a.name}
                 </option>
               ))}
             </select>
           </div>
 
           <div>
-            <div style={label}>Modalidade</div>
+            <div style={label}>Mode</div>
             <select value={filterMode} onChange={(e) => setFilterMode(e.target.value)} style={input}>
-              <option value="">(todas)</option>
+              <option value="">(all)</option>
               {MODES.map((m) => (
                 <option key={m} value={m}>
                   {m}
@@ -606,44 +671,44 @@ export default function AdminDashboardPage({
           </div>
 
           <div>
-            <div style={label}>RE (contém)</div>
+            <div style={label}>User ID (contains)</div>
             <input
-              value={filterRe}
-              onChange={(e) => setFilterRe(e.target.value)}
-              placeholder="Ex: 123 (acha 001234)"
+              value={filterUserId}
+              onChange={(e) => setFilterUserId(e.target.value)}
+              placeholder="Ex: 100 (matches 100001)"
               style={input}
               inputMode="numeric"
             />
           </div>
 
           <div>
-            <div style={label}>Data (de)</div>
+            <div style={label}>Date (from)</div>
             <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={input} />
           </div>
 
           <div>
-            <div style={label}>Data (até)</div>
+            <div style={label}>Date (to)</div>
             <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={input} />
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
           <button onClick={clearFilters} style={btn}>
-            Limpar filtros
+            Clear filters
           </button>
 
           <button onClick={refresh} style={btn}>
-            Atualizar dados
+            Refresh data
           </button>
         </div>
       </section>
 
       <section style={{ ...card, marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0, color: "var(--text)" }}>Resumo por viatura (total)</h3>
+        <h3 style={{ marginTop: 0, color: "var(--text)" }}>Totals by asset</h3>
         <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
-          {FIXED_VEHICLES.map((v) => (
+          {FIXED_ASSETS.map((a) => (
             <li
-              key={v.code}
+              key={a.code}
               style={{
                 display: "flex",
                 justifyContent: "space-between",
@@ -655,29 +720,27 @@ export default function AdminDashboardPage({
               }}
             >
               <span>
-                <b>{v.name}</b>{" "}
-                <span style={{ color: "var(--text-muted)", fontSize: 12 }}>{v.plate ? `• ${v.plate}` : ""}</span>
+                <b>{a.name}</b>
               </span>
-              <span style={{ fontWeight: 900 }}>{totalsByVehicle.get(v.code) ?? 0}</span>
+              <span style={{ fontWeight: 900 }}>{totalsByAsset.get(a.code) ?? 0}</span>
             </li>
           ))}
         </ul>
-        <div style={help}>Observação: este resumo é do total armazenado. A lista abaixo é do total filtrado.</div>
+        <div style={help}>
+          Note: this summary is based on all stored records. The list below is filtered.
+        </div>
       </section>
 
       <section style={card}>
-        <h3 style={{ marginTop: 0, color: "var(--text)" }}>Checklists (lista filtrada)</h3>
+        <h3 style={{ marginTop: 0, color: "var(--text)" }}>Checklists (filtered)</h3>
 
         {filtered.length === 0 ? (
-          <p style={{ color: "var(--text-muted)" }}>Nenhum checklist encontrado com os filtros atuais.</p>
+          <p style={{ color: "var(--text-muted)" }}>No checklists found with current filters.</p>
         ) : (
           <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
             {filtered.map((c) => {
-              const v = FIXED_VEHICLES.find((x) => x.code === c.vehicleCode);
-              const vehicleName = v?.name ?? c.vehicleCode;
-              const plate = v?.plate ?? "";
-
-              const kmInitial = Number.isFinite((c as any).kmInitial) ? (c as any).kmInitial : "(não informado)";
+              const a = FIXED_ASSETS.find((x) => x.code === c.assetCode);
+              const assetName = a?.name ?? c.assetCode;
 
               const issue = hasIssues(c);
               const issueCount = countIssues(c);
@@ -693,32 +756,42 @@ export default function AdminDashboardPage({
                     color: "var(--text)",
                   }}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                    }}
+                  >
                     <div style={{ minWidth: 240 }}>
                       <div style={{ fontWeight: 900, color: "var(--text)" }}>
                         {issue ? "⚠️ " : ""}
-                        {vehicleName}{" "}
-                        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{plate ? `• ${plate}` : ""}</span>
+                        {assetName}
                       </div>
 
                       <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                        {new Date(c.createdAt).toLocaleString("pt-BR")} • {officerLabel(c.createdByRe)}
+                        {new Date(c.createdAt).toLocaleString("en-US")} • {userLabel(c.createdByUserId)}
                       </div>
 
                       <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                        Modalidade: <b style={{ color: "var(--text)" }}>{modeDisplay(c as any)}</b> • Km Inicial:{" "}
-                        <b style={{ color: "var(--text)" }}>{kmInitial}</b>
+                        Mode:{" "}
+                        <b style={{ color: "var(--text)" }}>
+                          {modeDisplay(c.mode, c.modeDetail)}
+                        </b>{" "}
+                        • Initial km: <b style={{ color: "var(--text)" }}>{c.kmInitial}</b>
                       </div>
 
                       {issue && (
                         <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900, color: "var(--danger)" }}>
-                          ⚠️ {issueCount} apontamento(s) neste checklist
+                          ⚠️ {issueCount} issue(s) found
                         </div>
                       )}
                     </div>
 
                     <button onClick={() => onOpenChecklist(c.id!)} style={btn}>
-                      Abrir
+                      Open
                     </button>
                   </div>
                 </li>

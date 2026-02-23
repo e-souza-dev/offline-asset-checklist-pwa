@@ -3,7 +3,7 @@ export default function HomePage({
   onGoVehicles,
   onGoDashboard,
 }: {
-  role: "driver" | "admin";
+  role: "admin" | "operator";
   onGoVehicles: () => void;
   onGoDashboard: () => void;
 }) {
@@ -37,7 +37,7 @@ export default function HomePage({
               fontWeight: 500,
             }}
           >
-            Selecionar viatura / Fazer checklist
+            Start Checklist
           </button>
 
           {role === "admin" && (
@@ -53,7 +53,7 @@ export default function HomePage({
                 fontWeight: 500,
               }}
             >
-              Dashboard (Administração)
+              Admin Dashboard
             </button>
           )}
         </div>

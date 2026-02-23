@@ -1,26 +1,25 @@
 import { USERS } from "./users";
 
-export function normalizeRe(v: unknown): string {
+export function normalizeUserId(v: unknown): string {
   return String(v ?? "").replace(/\D/g, "").slice(0, 6);
 }
 
-export function findUserByRe(createdByRe: unknown) {
-  const re = normalizeRe(createdByRe);
-  if (!re) return undefined;
-  return USERS.find((u: any) => normalizeRe(u.re) === re);
+export function findUserById(userIdLike: unknown) {
+  const userId = normalizeUserId(userIdLike);
+  if (!userId) return undefined;
+  return USERS.find((u) => normalizeUserId((u as any).userId) === userId);
 }
 
-export function officerLabel(createdByRe: unknown): string {
-  const re = normalizeRe(createdByRe);
-  const u = findUserByRe(re);
-  if (!u) return `RE ${re || "??????"}`;
-  return `${u.rank} ${u.name}`.trim(); // "Sd PM E. Souza"
+export function userLabel(userIdLike: unknown): string {
+  const userId = normalizeUserId(userIdLike);
+  const u = findUserById(userId);
+  if (!u) return `User ${userId || "??????"}`;
+  return `${u.name}`.trim();
 }
 
-// Se quiser exibir também o RE no nome:
-// export function officerLabelWithRe(createdByRe: unknown): string {
-//   const re = normalizeRe(createdByRe);
-//   const u = findUserByRe(re);
-//   if (!u) return `RE ${re || "??????"}`;
-//   return `${u.rank} ${u.re} ${u.name}`.trim(); // "Sd PM 201446 E. Souza"
-// }
+export function userLabelWithId(userIdLike: unknown): string {
+  const userId = normalizeUserId(userIdLike);
+  const u = findUserById(userId);
+  if (!u) return `User ${userId || "??????"}`;
+  return `${u.userId} ${u.name}`.trim();
+}

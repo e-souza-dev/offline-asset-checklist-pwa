@@ -1,71 +1,84 @@
+// src/pages/ChecklistDetailPage.tsx
 import { useEffect, useMemo, useState } from "react";
-import { db, type ChecklistRecord } from "../db";
-import { FIXED_VEHICLES } from "../vehicles";
-import { hasIssues, countIssues } from "../utils/checklist";
-import { USERS } from "../users";
+import { db, type ChecklistRecord, type Role } from "../db";
+import { FIXED_ASSETS } from "../demo/assets.demo";
+import { countIssues, hasIssues } from "../utils/checklist";
+import { normalizeUserId, userLabel } from "../userLookup";
 
-type Props = {
+type Props = Readonly<{
   checklistId: number;
   onBack: () => void;
   canDelete?: boolean;
   onDeleted?: () => void;
-};
+}>;
 
-function normalizeRe(v: unknown): string {
-  return String(v ?? "").replace(/\D/g, "").slice(0, 6);
-}
-
-function officerLabel(createdByRe: unknown): string {
-  const re = normalizeRe(createdByRe);
-  const u = USERS.find((x: any) => normalizeRe(x.re) === re);
-  if (!u) return `RE ${re || "??????"}`;
-  return `${u.rank} ${u.name}`.trim();
-}
-
-function modeDisplay(item: any): string {
-  const mode = String(item?.mode ?? "(não informado)");
-  const detail = String(item?.modeDetail ?? "").trim();
-  if (mode === "Outros" && detail) return `Outros — ${detail}`;
+function modeDisplay(mode: ChecklistRecord["mode"], modeDetail?: string): string {
+  const detail = (modeDetail ?? "").trim();
+  if (mode === "Other" && detail) return `Other — ${detail}`;
   return mode;
 }
 
-export default function ChecklistDetailPage({ checklistId, onBack, canDelete = false, onDeleted }: Props) {
+function roleDisplay(role: Role): string {
+  return role === "admin" ? "Admin" : "Operator";
+}
+
+export default function ChecklistDetailPage({
+  checklistId,
+  onBack,
+  canDelete = false,
+  onDeleted,
+}: Props) {
   const [item, setItem] = useState<ChecklistRecord | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     (async () => {
       const found = await db.checklists.get(checklistId);
-      setItem(found ?? null);
+      if (!cancelled) setItem(found ?? null);
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [checklistId]);
 
-  const vehicleName = useMemo(() => {
+  const assetName = useMemo(() => {
     if (!item) return "";
-    const v = FIXED_VEHICLES.find((x) => x.code === item.vehicleCode);
-    return v?.name ?? item.vehicleCode;
+    const a = FIXED_ASSETS.find((x) => x.code === item.assetCode);
+    return a?.name ?? item.assetCode;
   }, [item]);
 
   async function handleDelete() {
     if (!canDelete) return;
     if (!item) return;
 
-    const ok = window.confirm("Confirma excluir este checklist? Esta ação não pode ser desfeita.");
+    const ok = window.confirm(
+      "Delete this checklist? This action cannot be undone."
+    );
     if (!ok) return;
 
     try {
       setBusy(true);
       setMsg(null);
       await db.checklists.delete(checklistId);
-      setMsg("Checklist excluído com sucesso.");
+      setMsg("Checklist deleted successfully.");
       onDeleted?.();
     } catch {
-      setMsg("Falha ao excluir. Tente novamente.");
+      setMsg("Failed to delete. Please try again.");
     } finally {
       setBusy(false);
     }
   }
+
+  const pageWrap: React.CSSProperties = {
+    maxWidth: 820,
+    margin: "0 auto",
+    padding: 16,
+    color: "var(--text)",
+  };
 
   const btn: React.CSSProperties = {
     padding: "10px 12px",
@@ -80,31 +93,37 @@ export default function ChecklistDetailPage({ checklistId, onBack, canDelete = f
 
   if (!item) {
     return (
-      <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "var(--text)" }}>
+      <div style={pageWrap}>
         <button onClick={onBack} style={btn}>
-          ← Voltar
+          ← Back
         </button>
 
-        <p style={{ marginTop: 12, color: "var(--text-muted)" }}>Carregando checklist...</p>
+        <p style={{ marginTop: 12, color: "var(--text-muted)" }}>
+          Loading checklist...
+        </p>
       </div>
     );
   }
 
-  const kmInitial = Number.isFinite((item as any).kmInitial) ? (item as any).kmInitial : "(não informado)";
-  const templateId = (item as any).templateId ?? "(não informado)";
-  const templateVersion = Number.isFinite((item as any).templateVersion) ? (item as any).templateVersion : "(?)";
-
   const issue = hasIssues(item);
   const issueCount = countIssues(item);
 
-  const createdRe = normalizeRe((item as any).createdByRe);
-  const createdLabel = officerLabel((item as any).createdByRe);
+  const createdById = normalizeUserId(item.createdByUserId);
+  const createdLabel = userLabel(item.createdByUserId);
 
   return (
-    <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "var(--text)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+    <div style={pageWrap}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 10,
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}
+      >
         <button onClick={onBack} style={btn}>
-          ← Voltar
+          ← Back
         </button>
 
         {canDelete && (
@@ -114,12 +133,11 @@ export default function ChecklistDetailPage({ checklistId, onBack, canDelete = f
             style={{
               ...btn,
               border: "2px solid var(--danger)",
-              color: "var(--text)",
               background: "var(--bg-surface)",
               opacity: busy ? 0.75 : 1,
             }}
           >
-            {busy ? "Excluindo..." : "Excluir checklist"}
+            {busy ? "Deleting..." : "Delete checklist"}
           </button>
         )}
       </div>
@@ -142,26 +160,29 @@ export default function ChecklistDetailPage({ checklistId, onBack, canDelete = f
         }}
       >
         <div>
-          Viatura: <b>{vehicleName}</b>
+          Asset: <b>{assetName}</b>
         </div>
 
         <div>
-          Data: <b>{new Date(item.createdAt).toLocaleString("pt-BR")}</b>
+          Date: <b>{new Date(item.createdAt).toLocaleString("en-US")}</b>
         </div>
 
         <div>
-          Feito por:{" "}
+          Created by:{" "}
           <b>
-            {item.createdByRole === "admin" ? "Admin" : "Motorista"} • {createdLabel} • RE {createdRe}
+            {roleDisplay(item.createdByRole)} • {createdLabel} • ID{" "}
+            {createdById || "??????"}
           </b>
         </div>
 
         <div>
-          Modalidade: <b>{modeDisplay(item as any)}</b> • Km Inicial: <b>{kmInitial}</b>
+          Mode: <b>{modeDisplay(item.mode, item.modeDetail)}</b> • Initial
+          odometer: <b>{item.kmInitial}</b>
         </div>
 
         <div>
-          Template: <b>{templateId}</b> • Versão: <b>{templateVersion}</b>
+          Template: <b>{item.templateId}</b> • Version:{" "}
+          <b>{item.templateVersion}</b>
         </div>
       </div>
 
@@ -171,12 +192,15 @@ export default function ChecklistDetailPage({ checklistId, onBack, canDelete = f
             marginBottom: 12,
             padding: 10,
             borderRadius: 10,
-            border: msg.includes("sucesso") ? "1px solid var(--border)" : "2px solid var(--danger)",
+            border: msg.toLowerCase().includes("success")
+              ? "1px solid var(--border)"
+              : "2px solid var(--danger)",
             background: "var(--bg-surface-2)",
             color: "var(--text)",
             fontWeight: 800,
             fontSize: 13,
           }}
+          role="status"
         >
           {msg}
         </div>
@@ -195,7 +219,7 @@ export default function ChecklistDetailPage({ checklistId, onBack, canDelete = f
             fontSize: 14,
           }}
         >
-          ⚠️ Este checklist possui {issueCount} apontamento(s).
+          ⚠️ This checklist has {issueCount} issue(s).
         </div>
       )}
 
@@ -210,8 +234,13 @@ export default function ChecklistDetailPage({ checklistId, onBack, canDelete = f
       >
         {item.answers.map((a) => {
           const isIssue = a.type === "yesno" && a.value === "no";
+
           const valueText =
-            a.type === "yesno" ? (a.value === "no" ? "Não" : "Sim") : (a.value as string) || "(vazio)";
+            a.type === "yesno"
+              ? a.value === "no"
+                ? "No"
+                : "Yes"
+              : a.value.trim() || "(empty)";
 
           return (
             <div
@@ -220,7 +249,9 @@ export default function ChecklistDetailPage({ checklistId, onBack, canDelete = f
                 padding: 12,
                 marginBottom: 8,
                 borderRadius: 10,
-                border: isIssue ? "2px solid var(--danger)" : "1px solid var(--border)",
+                border: isIssue
+                  ? "2px solid var(--danger)"
+                  : "1px solid var(--border)",
                 background: "var(--bg)",
                 color: "var(--text)",
               }}
@@ -230,7 +261,9 @@ export default function ChecklistDetailPage({ checklistId, onBack, canDelete = f
                 {a.label}
               </div>
 
-              <div style={{ marginTop: 6, color: "var(--text-muted)" }}>{valueText}</div>
+              <div style={{ marginTop: 6, color: "var(--text-muted)" }}>
+                {valueText}
+              </div>
             </div>
           );
         })}

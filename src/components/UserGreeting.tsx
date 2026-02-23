@@ -3,16 +3,12 @@ import { formatUserDisplay } from "../users";
 
 export default function UserGreeting({
   user,
-  showRe = false,
+  showId = false,
 }: {
   user: User;
-  showRe?: boolean;
+  showId?: boolean;
 }) {
-  // Exibição única só na UI
-  // Se você quiser mostrar RE, use formatUserDisplay(user)
-  const greetingText = showRe
-    ? formatUserDisplay(user) // "Sd PM 201446 E. Souza"
-    : `${user.rank} ${user.name}`; // "Sd PM E. Souza"
+  const greetingText = showId ? formatUserDisplay(user) : user.name;
 
   return (
     <div
@@ -26,8 +22,9 @@ export default function UserGreeting({
       }}
     >
       <div style={{ fontWeight: 900, fontSize: 16, color: "var(--text)" }}>
-        Bem-vindo 👋
+        Welcome 👋
       </div>
+
       <div style={{ marginTop: 6, fontSize: 14, color: "var(--text-muted)" }}>
         {greetingText}
       </div>

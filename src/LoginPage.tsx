@@ -1,75 +1,66 @@
+// src/LoginPage.tsx
 import { useMemo, useState } from "react";
-import { USERS } from "./users";
+import { DEMO_MODE } from "./config";
+import { USERS, getUserById, isValidUserId, normalizeUserId } from "./users";
 import { setSession } from "./auth";
-import { ADMIN_PASSWORDS } from "./adminSecrets";
 
-export default function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
-  const [reInput, setReInput] = useState("");
-  const [pass, setPass] = useState("");
+type LoginPageProps = Readonly<{
+  onLoggedIn: () => void;
+}>;
+
+export default function LoginPage({ onLoggedIn }: LoginPageProps) {
+  const [userIdInput, setUserIdInput] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  function normalizeRe(input: string) {
-    return input.replace(/\D/g, "").slice(0, 6);
-  }
-
-  const normalizedRe = useMemo(() => normalizeRe(reInput), [reInput]);
+  const normalizedUserId = useMemo(
+    () => normalizeUserId(userIdInput),
+    [userIdInput]
+  );
 
   const matchedUser = useMemo(() => {
-    if (!/^\d{6}$/.test(normalizedRe)) return undefined;
-    return USERS.find((u: any) => String(u.re) === String(normalizedRe));
-  }, [normalizedRe]);
+    if (!isValidUserId(normalizedUserId)) return undefined;
+    return getUserById(normalizedUserId);
+  }, [normalizedUserId]);
 
-  const needsPassword = matchedUser?.role === "admin";
-
-  function handleLogin() {
+  function loginWithUserId(userId: string) {
     setError(null);
 
-    const re = normalizedRe;
+    const normalized = normalizeUserId(userId);
 
-    if (!/^\d{6}$/.test(re)) {
-      setError("RE inválido. Digite exatamente 6 números.");
+    if (!isValidUserId(normalized)) {
+      setError("ID inválido. Digite exatamente 6 números.");
       return;
     }
 
-    const user = USERS.find((u: any) => String(u.re) === String(re));
-
+    const user = getUserById(normalized);
     if (!user) {
-      setError("RE não cadastrado. Procure a seção P/4 para regularização.");
+      setError("Usuário não encontrado. Use um ID de demonstração.");
       return;
-    }
-
-    // ✅ Admin: exige senha
-    if (user.role === "admin") {
-      const expected = ADMIN_PASSWORDS[String(re)];
-      if (!expected) {
-        setError("Senha administrativa não configurada para este RE.");
-        return;
-      }
-      if (!pass.trim()) {
-        setError("Digite a senha administrativa para continuar.");
-        return;
-      }
-      if (pass !== expected) {
-        setError("Senha inválida.");
-        return;
-      }
     }
 
     setSession({
-      re: String(re),
-      role: user.role === "admin" ? "admin" : "driver",
+      userId: user.userId,
+      role: user.role,
     });
 
-    setPass("");
     onLoggedIn();
   }
 
   function onEnter(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
-      handleLogin();
+      loginWithUserId(normalizedUserId);
     }
   }
+
+  const demoAdminId = useMemo(
+    () => USERS.find((u) => u.role === "admin")?.userId,
+    []
+  );
+  const demoOperatorId = useMemo(
+    () => USERS.find((u) => u.role === "operator")?.userId,
+    []
+  );
 
   const page: React.CSSProperties = {
     minHeight: "100vh",
@@ -126,6 +117,19 @@ export default function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
     fontWeight: 800,
   };
 
+  const row: React.CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 12,
+    marginTop: 12,
+  };
+
+  const hint: React.CSSProperties = {
+    marginTop: 6,
+    fontSize: 12,
+    color: "var(--text-muted)",
+  };
+
   const credits: React.CSSProperties = {
     textAlign: "center",
     fontSize: 12,
@@ -134,62 +138,83 @@ export default function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
     color: "var(--text-muted)",
   };
 
+  const demoIdsText = useMemo(() => USERS.map((u) => u.userId).join(", "), []);
+
   return (
     <div style={page}>
       <div style={card}>
-        <h2 style={{ marginTop: 0, color: "var(--text)" }}>Acesso</h2>
+        <h2 style={{ marginTop: 0, color: "var(--text)" }}>Sign in</h2>
         <p style={{ marginTop: 6, color: "var(--text-muted)" }}>
-          Digite seu RE para iniciar a sessão.
+          Offline-first checklist PWA. Use a demo User ID to start a session.
         </p>
 
         <section style={panel}>
           <div style={{ display: "grid", gap: 12 }}>
             <div>
-              <div style={label}>RE</div>
+              <div style={label}>User ID</div>
               <input
-                value={reInput}
+                value={userIdInput}
                 onChange={(e) => {
-                  const next = normalizeRe(e.target.value);
-                  setReInput(next);
+                  setUserIdInput(normalizeUserId(e.target.value));
                   setError(null);
-
-                  // Se deixou de ser admin candidate, limpa senha
-                  const user = USERS.find((u: any) => String(u.re) === String(next));
-                  if (!user || user.role !== "admin") setPass("");
                 }}
                 onKeyDown={onEnter}
                 inputMode="numeric"
-                placeholder="Ex: 123456"
+                placeholder="Ex: 100001"
                 style={input}
+                aria-invalid={!!error}
+                aria-describedby="login-hint"
               />
+              {matchedUser ? (
+                <div id="login-hint" style={hint}>
+                  Matched: <b>{matchedUser.name}</b> ({matchedUser.role})
+                </div>
+              ) : (
+                DEMO_MODE && (
+                  <div id="login-hint" style={hint}>
+                    Demo IDs: {demoIdsText}
+                  </div>
+                )
+              )}
             </div>
 
-            {needsPassword && (
-              <div>
-                <div style={label}>Senha administrativa</div>
-                <input
-                  value={pass}
-                  onChange={(e) => {
-                    setPass(e.target.value);
-                    setError(null);
+            <button onClick={() => loginWithUserId(normalizedUserId)} style={btn}>
+              Enter
+            </button>
+
+            {DEMO_MODE && (
+              <div style={row}>
+                <button
+                  onClick={() => {
+                    if (!demoAdminId) {
+                      setError("No demo admin user configured.");
+                      return;
+                    }
+                    loginWithUserId(demoAdminId);
                   }}
-                  onKeyDown={onEnter}
-                  type="password"
-                  placeholder="Digite a senha"
-                  style={input}
-                />
-                <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-muted)" }}>
-                  Este campo aparece apenas para usuários da Administração.
-                </div>
+                  style={btn}
+                >
+                  Demo Admin
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (!demoOperatorId) {
+                      setError("No demo operator user configured.");
+                      return;
+                    }
+                    loginWithUserId(demoOperatorId);
+                  }}
+                  style={btn}
+                >
+                  Demo Operator
+                </button>
               </div>
             )}
 
-            <button onClick={handleLogin} style={btn}>
-              Entrar
-            </button>
-
             {error && (
               <div
+                role="alert"
                 style={{
                   marginTop: 8,
                   padding: 12,
@@ -207,9 +232,8 @@ export default function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
         </section>
       </div>
 
-      {/* Créditos */}
       <div style={credits}>
-        Desenvolvido por <b>Sd PM E. Souza</b> • 1ª Cia - 25º BPM/M
+        Built by <b>Ewerton Souza</b> • Portfolio project
       </div>
     </div>
   );

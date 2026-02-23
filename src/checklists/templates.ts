@@ -1,89 +1,118 @@
+// src/checklists/templates.ts
+
 export type ChecklistItem =
-  | { key: string; label: string; type: "yesno" }
-  | { key: string; label: string; type: "text" };
+  | Readonly<{ key: string; label: string; type: "yesno" }>
+  | Readonly<{ key: string; label: string; type: "text" }>;
 
-export type VehicleModel = "SPIN" | "DUSTER" | "GOL" | "RANGER" | "SPRINTER";
+/**
+ * Portfolio-safe: generic asset types.
+ */
+export type AssetModel = "TYPE_A" | "TYPE_B" | "TYPE_C" | "TYPE_D" | "TYPE_E";
 
-export type ChecklistTemplate = {
-  templateId: VehicleModel;
+export type ChecklistTemplate = Readonly<{
+  templateId: AssetModel;
   version: number;
   title: string;
-  items: ChecklistItem[];
-};
+  items: readonly ChecklistItem[];
+}>;
 
-// Itens comuns a todos os veículos
-const COMMON_ITEMS: ChecklistItem[] = [
-  { key: "card", label: "Cartão de abastecimento em ordem?", type: "yesno" },
-  { key: "pneus", label: "Pneus em bom estado (sem cortes/bolhas, calibragem ok)?", type: "yesno" },
-  { key: "luzes", label: "Luzes/sinalização funcionando (faróis/setas/freio/ré)?", type: "yesno" },
-  { key: "sinal", label: "Sirene e sinalizador (giroflex/LED) funcionando?", type: "yesno" },
-  { key: "freios", label: "Freios OK (pedal firme / sem ruídos anormais)?", type: "yesno" },
-  { key: "limpador", label: "Limpador e lavador do para-brisa funcionando?", type: "yesno" },
-  { key: "vidros", label: "Vidros e espelhos sem rachaduras?", type: "yesno" },
-  { key: "ar", label: "Ar condicionado funcionando?", type: "yesno" },
-  { key: "equip", label: "Equipamentos obrigatórios/conferência geral (triângulo/macaco/chave)?", type: "yesno" },
-  { key: "bancos", label: "Bancos e cintos em condições de uso?", type: "yesno" },
-  { key: "portas", label: "Portas/travas/vidros elétricos OK?", type: "yesno" },
-  { key: "obs", label: "Observações / defeitos percebidos", type: "text" },
+// Common items (generic, no institution-specific content)
+const COMMON_ITEMS = [
+  { key: "docs", label: "Required documents available and valid?", type: "yesno" },
+  { key: "tires", label: "Tires in good condition (no cuts/bulges, correct pressure)?", type: "yesno" },
+  { key: "lights", label: "Lights/signals working (headlights/turn/brake/reverse)?", type: "yesno" },
+  { key: "horn", label: "Horn working?", type: "yesno" },
+  { key: "brakes", label: "Brakes OK (firm pedal / no unusual noise)?", type: "yesno" },
+  { key: "wipers", label: "Wipers and washer system working?", type: "yesno" },
+  { key: "glass", label: "Windows and mirrors intact (no cracks)?", type: "yesno" },
+  { key: "ac", label: "Air conditioning / ventilation working?", type: "yesno" },
+  { key: "tools", label: "Safety kit present (triangle/jack/wrench, etc.)?", type: "yesno" },
+  { key: "seats", label: "Seats and seatbelts in good condition?", type: "yesno" },
+  { key: "doors", label: "Doors/locks/windows working properly?", type: "yesno" },
+  { key: "obs", label: "Notes / issues observed", type: "text" },
+] as const satisfies readonly ChecklistItem[];
 
-];
+// Type-specific items (still generic)
+const TYPE_A_ITEMS = [
+  { key: "a_rear", label: "Rear door/hatch working properly (open/close/lock)?", type: "yesno" },
+  { key: "a_trans", label: "Transmission behavior OK (smooth shifting)?", type: "yesno" },
+] as const satisfies readonly ChecklistItem[];
 
-// Específicos por modelo (iniciais — você ajusta depois)
-const SPIN_ITEMS: ChecklistItem[] = [
-  { key: "spin_portamalas", label: "Guarda-preso/porta traseira OK (abre/fecha, travas)?", type: "yesno" },
-  { key: "spin_cambio", label: "Funcionamento do câmbio automático OK (passa corretamente as marchas)?", type: "yesno" },
-];
+const TYPE_B_ITEMS = [
+  { key: "b_rear", label: "Rear door/hatch working properly (open/close/lock)?", type: "yesno" },
+] as const satisfies readonly ChecklistItem[];
 
-const DUSTER_ITEMS: ChecklistItem[] = [
-  { key: "duster_portamalas", label: "Guarda-preso/porta traseira OK (abre/fecha, travas)?", type: "yesno" },
-];
+const TYPE_C_ITEMS = [
+  { key: "c_trunk", label: "Trunk/rear door working properly (open/close/lock)?", type: "yesno" },
+] as const satisfies readonly ChecklistItem[];
 
-const GOL_ITEMS: ChecklistItem[] = [
-  { key: "gol_portamalas", label: "Porta-malas/porta traseira OK (abre/fecha, travas)?", type: "yesno" },
-];
+const TYPE_D_ITEMS = [
+  { key: "d_cargo", label: "Cargo area organized and no dangerous loose items?", type: "yesno" },
+  { key: "d_cover", label: "Cargo cover in good condition?", type: "yesno" },
+  { key: "d_steps", label: "Side steps/footsteps OK (no looseness)?", type: "yesno" },
+  { key: "d_trans", label: "Transmission behavior OK (smooth shifting)?", type: "yesno" },
+  { key: "d_drive", label: "Drive mode indicators/selectors OK (if applicable)?", type: "yesno" },
+] as const satisfies readonly ChecklistItem[];
 
-const RANGER_ITEMS: ChecklistItem[] = [
-  { key: "ranger_cacamba", label: "Caçamba organizada e sem itens soltos perigosos?", type: "yesno" },
-  { key: "ranger_lona", label: "Lona de proteção da caçamba em boas condições?", type: "yesno" },
-  { key: "ranger_estribo", label: "Estribos e degraus OK (sem folgas)?", type: "yesno" },
-  { key: "ranger_cambio", label: "Funcionamento do câmbio automático OK (passa corretamente as marchas)?", type: "yesno" },
-  { key: "ranger_4x4", label: "Seletor/indicadores de tração (4x2 - 4L - 4H) OK?", type: "yesno" },
-];
+const TYPE_E_ITEMS = [
+  { key: "e_doors", label: "Rear/side doors OK (locks and operation)?", type: "yesno" },
+  { key: "e_cabin", label: "Cabin lighting and interior area OK (no loose items)?", type: "yesno" },
+] as const satisfies readonly ChecklistItem[];
 
-const SPRINTER_ITEMS: ChecklistItem[] = [
-  { key: "sprinter_portas", label: "Portas traseiras e corrediça OK (travas e funcionamento)?", type: "yesno" },
-  { key: "sprinter_interno", label: "Iluminação interna e compartimento OK (sem itens soltos)?", type: "yesno" },
-];
+/**
+ * Extra: compile-time guard against duplicate keys inside a template.
+ * If keys collide (e.g., "doors" duplicated), TS will error.
+ */
+type ItemKeyOf<T extends readonly ChecklistItem[]> = T[number]["key"];
+type HasDuplicateKeys<T extends readonly ChecklistItem[], Seen extends string = never> =
+  T extends readonly [infer H, ...infer R]
+    ? H extends ChecklistItem
+      ? H["key"] extends Seen
+        ? true
+        : R extends readonly ChecklistItem[]
+          ? HasDuplicateKeys<R, Seen | H["key"]>
+          : false
+      : false
+    : false;
 
-export const TEMPLATES: Record<VehicleModel, ChecklistTemplate> = {
-  SPIN: {
-    templateId: "SPIN",
+type AssertNoDupes<T extends readonly ChecklistItem[]> =
+  HasDuplicateKeys<T> extends true ? never : T;
+
+function defineTemplate<const T extends readonly ChecklistItem[]>(
+  template: Omit<ChecklistTemplate, "items"> & { items: AssertNoDupes<T> }
+): ChecklistTemplate {
+  return template;
+}
+
+export const TEMPLATES: Readonly<Record<AssetModel, ChecklistTemplate>> = {
+  TYPE_A: defineTemplate({
+    templateId: "TYPE_A",
     version: 1,
-    title: "Checklist — Chevrolet Spin",
-    items: [...COMMON_ITEMS, ...SPIN_ITEMS],
-  },
-  DUSTER: {
-    templateId: "DUSTER",
+    title: "Checklist — Asset Type A",
+    items: [...COMMON_ITEMS, ...TYPE_A_ITEMS] as const,
+  }),
+  TYPE_B: defineTemplate({
+    templateId: "TYPE_B",
     version: 1,
-    title: "Checklist — Renault Duster",
-    items: [...COMMON_ITEMS, ...DUSTER_ITEMS],
-  },
-  GOL: {
-    templateId: "GOL",
+    title: "Checklist — Asset Type B",
+    items: [...COMMON_ITEMS, ...TYPE_B_ITEMS] as const,
+  }),
+  TYPE_C: defineTemplate({
+    templateId: "TYPE_C",
     version: 1,
-    title: "Checklist — Volkswagen Gol",
-    items: [...COMMON_ITEMS, ...GOL_ITEMS],
-  },
-  RANGER: {
-    templateId: "RANGER",
+    title: "Checklist — Asset Type C",
+    items: [...COMMON_ITEMS, ...TYPE_C_ITEMS] as const,
+  }),
+  TYPE_D: defineTemplate({
+    templateId: "TYPE_D",
     version: 1,
-    title: "Checklist — Ford Ranger",
-    items: [...COMMON_ITEMS, ...RANGER_ITEMS],
-  },
-  SPRINTER: {
-    templateId: "SPRINTER",
+    title: "Checklist — Asset Type D",
+    items: [...COMMON_ITEMS, ...TYPE_D_ITEMS] as const,
+  }),
+  TYPE_E: defineTemplate({
+    templateId: "TYPE_E",
     version: 1,
-    title: "Checklist — Mercedes Sprinter",
-    items: [...COMMON_ITEMS, ...SPRINTER_ITEMS],
-  },
-};
+    title: "Checklist — Asset Type E",
+    items: [...COMMON_ITEMS, ...TYPE_E_ITEMS] as const,
+  }),
+} as const;

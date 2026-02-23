@@ -1,81 +1,77 @@
-import Dexie from "dexie";
-import type { Table } from "dexie";
+// src/db.ts
+import Dexie, { type Table } from "dexie";
 
-export type AdminUser = {
-  id?: number;
-  re: string;
-  createdAt: string; // ISO
-};
+export type Role = "admin" | "operator";
 
-export type PolicingMode =
-  | "Cmt Cia"
-  | "CGP"
-  | "Radio Patrulha"
-  | "Base Móvel"
-  | "Atividade DEJEM"
-  | "Atividade DELEGADA"
-  | "Apoio Administrativo"
-  | "Outros";
+export type OperationMode =
+  | "Routine"
+  | "Administrative"
+  | "Mobile Unit"
+  | "Special Duty"
+  | "Other";
 
 export type ChecklistAnswerValue = "yes" | "no" | string;
 
-export type ChecklistAnswer = {
+export type ChecklistAnswer = Readonly<{
   key: string;
   label: string;
   type: "yesno" | "text";
   value: ChecklistAnswerValue;
-};
+}>;
 
 export type ChecklistRecord = {
   id?: number;
-  vehicleCode: string;
-  createdAt: string;
-  createdByRe: string;
-  createdByRole: "driver" | "admin";
 
-  mode: PolicingMode;
+  assetCode: string;
+  createdAt: string; // ISO
+
+  createdByUserId: string;
+  createdByRole: Role;
+
+  mode: OperationMode;
+  modeDetail?: string;
+
   kmInitial: number;
 
-  // Etapa 7:
-  templateId: string; // ex: "DUSTER"
-  templateVersion: number; // ex: 1
+  templateId: string;
+  templateVersion: number;
 
   answers: ChecklistAnswer[];
 };
 
+export type Asset = {
+  id?: number;
+  code: string;
+  name: string;
+  type?: string; // optional label for UI ("Type A", etc.)
+  createdAt: string; // ISO
+  updatedAt?: string; // ISO
+};
+
+export type AdminUser = {
+  id?: number;
+  userId: string;
+  createdAt: string; // ISO
+};
+
 export class AppDB extends Dexie {
+  assets!: Table<Asset, number>;
   admins!: Table<AdminUser, number>;
   checklists!: Table<ChecklistRecord, number>;
 
   constructor() {
-    super("checklist_pwa_db");
+    super("offline_asset_checklist_db");
 
     this.version(1).stores({
-      vehicles: "++id, name, plate, createdAt",
-    });
-
-    this.version(2).stores({
-      vehicles: "++id, name, plate, createdAt, updatedAt",
-      admins: "++id, re, createdAt",
-    });
-
-    this.version(3).stores({
-      admins: "++id, re, createdAt",
-      checklists: "++id, vehicleCode, createdAt, createdByRe, createdByRole",
-    });
-
-    this.version(4).stores({
-      admins: "++id, re, createdAt",
+      assets: "++id,&code,name,type,createdAt,updatedAt",
+      admins: "++id,&userId,createdAt",
       checklists:
-        "++id, vehicleCode, createdAt, createdByRe, createdByRole, mode, kmInitial",
+        "++id,assetCode,createdAt,createdByUserId,createdByRole,mode,templateId,templateVersion",
     });
 
-    // v5: adiciona templateId/templateVersion
-    this.version(5).stores({
-      admins: "++id, re, createdAt",
-      checklists:
-        "++id, vehicleCode, createdAt, createdByRe, createdByRole, mode, kmInitial, templateId, templateVersion",
-    });
+    this.assets = this.table("assets");
+    this.admins = this.table("admins");
+    this.checklists = this.table("checklists");
   }
 }
 

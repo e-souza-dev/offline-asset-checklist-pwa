@@ -1,109 +1,172 @@
+// src/pages/ChecklistFillPage.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
-import { db, type ChecklistAnswer, type PolicingMode } from "../db";
-import { FIXED_VEHICLES } from "../vehicles";
+import { db, type ChecklistAnswer, type OperationMode } from "../db";
+import { FIXED_ASSETS } from "../demo/assets.demo";
 import { TEMPLATES } from "../checklists/templates";
 
 function formatTagDate(d: Date) {
   const dd = String(d.getDate()).padStart(2, "0");
   const mmm = d
-    .toLocaleString("pt-BR", { month: "short" })
+    .toLocaleString("en-US", { month: "short" })
     .replace(".", "")
     .toUpperCase();
   const yy = String(d.getFullYear()).slice(-2);
   return `${dd}${mmm}${yy}`;
 }
 
-const MODES: PolicingMode[] = [
-  "Cmt Cia",
-  "CGP",
-  "Radio Patrulha",
-  "Base Móvel",
-  "Atividade DEJEM",
-  "Atividade DELEGADA",
-  "Apoio Administrativo",
-  "Outros",
-];
+const MODES: readonly OperationMode[] = [
+  "Routine",
+  "Administrative",
+  "Mobile Unit",
+  "Special Duty",
+  "Other",
+] as const;
+
+type Props = Readonly<{
+  assetCode: string;
+  createdByUserId: string;
+  createdByRole: "operator" | "admin";
+  onSaved: (checklistId: number) => void;
+  onBack: () => void;
+}>;
+
+type TemplateItem = Readonly<{
+  key: string;
+  label: string;
+  type: "yesno" | "text";
+}>;
+
+type Template = Readonly<{
+  templateId: string;
+  version: number;
+  title: string;
+  items: readonly TemplateItem[];
+}>;
+
+type ValuesByKey = Record<string, string>;
+
+function initValues(template: Template | null): ValuesByKey {
+  const initial: ValuesByKey = {};
+  const items = template?.items ?? [];
+  for (const item of items) {
+    initial[item.key] = item.type === "yesno" ? "yes" : "";
+  }
+  return initial;
+}
+
+function isISODateString(v: unknown): v is string {
+  return typeof v === "string" && Number.isFinite(Date.parse(v));
+}
+
+function parseKm(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const km = Number(trimmed);
+  if (!Number.isFinite(km) || km < 0) return null;
+  return Math.floor(km);
+}
+
+type ChecklistListRow = Readonly<{
+  createdAt: string;
+  kmInitial: number;
+}>;
 
 export default function ChecklistFillPage({
-  vehicleCode,
-  createdByRe,
+  assetCode,
+  createdByUserId,
   createdByRole,
   onSaved,
   onBack,
-}: {
-  vehicleCode: string;
-  createdByRe: string;
-  createdByRole: "driver" | "admin";
-  onSaved: (checklistId: number) => void;
-  onBack: () => void;
-}) {
-  const vehicle = useMemo(
-    () => FIXED_VEHICLES.find((v) => v.code === vehicleCode) ?? null,
-    [vehicleCode]
+}: Props) {
+  const asset = useMemo(
+    () => FIXED_ASSETS.find((a) => a.code === assetCode) ?? null,
+    [assetCode]
   );
 
-  const template = useMemo(() => {
-    if (!vehicle) return null;
-    return TEMPLATES[vehicle.model];
-  }, [vehicle]);
+  const template = useMemo<Template | null>(() => {
+    if (!asset) return null;
+    const t = TEMPLATES[asset.model];
+    return t
+      ? {
+          templateId: t.templateId,
+          version: t.version,
+          title: t.title,
+          items: t.items,
+        }
+      : null;
+  }, [asset]);
 
   const todayTag = useMemo(() => formatTagDate(new Date()), []);
 
-  const [mode, setMode] = useState<PolicingMode | "">("");
-  const [modeDetail, setModeDetail] = useState<string>(""); // ✅ usado quando mode === "Outros"
+  const [mode, setMode] = useState<OperationMode | "">("");
+  const [modeDetail, setModeDetail] = useState<string>("");
   const [kmInitial, setKmInitial] = useState<string>("");
 
-  const [values, setValues] = useState<Record<string, string>>(() => {
-    const initial: Record<string, string> = {};
-    const items = template?.items ?? [];
-    for (const item of items) {
-      initial[item.key] = item.type === "yesno" ? "yes" : "";
-    }
-    return initial;
-  });
-
+  const [values, setValues] = useState<ValuesByKey>(() => initValues(template));
   const [error, setError] = useState<string | null>(null);
 
-  // trava evitar "salvar" duplo
+  // prevent double save
   const [isSaving, setIsSaving] = useState(false);
 
-  // destacar campos inválidos
+  // invalid highlights
   const [invalidMode, setInvalidMode] = useState(false);
   const [invalidModeDetail, setInvalidModeDetail] = useState(false);
   const [invalidKm, setInvalidKm] = useState(false);
 
-  // refs para rolar até o campo
+  // refs to scroll
   const modeRef = useRef<HTMLDivElement | null>(null);
   const kmRef = useRef<HTMLDivElement | null>(null);
 
-  // Mensagem de sucesso do motorista (sem abrir detalhe)
+  // operator success screen
   const [savedOk, setSavedOk] = useState(false);
 
-  // ✅ Validação de KM: último KM registrado por viatura
+  // km validation: last km by asset
   const [lastKm, setLastKm] = useState<number | null>(null);
   const [needKmConfirm, setNeedKmConfirm] = useState(false);
 
+  // Reset values if template changes (edge-case safety)
   useEffect(() => {
+    setValues(initValues(template));
+  }, [template?.templateId, template?.version]);
+
+  useEffect(() => {
+    let cancelled = false;
+
     (async () => {
       try {
-        const list = await db.checklists.where("vehicleCode").equals(vehicleCode).toArray();
-        let latest: any = null;
+        // Grab only the fields we need (createdAt, kmInitial) and compute "latest" safely.
+        const list = (await db.checklists
+          .where("assetCode")
+          .equals(assetCode)
+          .toArray()) as unknown[];
 
-        for (const c of list as any[]) {
-          if (!latest) {
-            latest = c;
-            continue;
-          }
-          if (String(c.createdAt ?? "") > String(latest.createdAt ?? "")) latest = c;
+        const candidates: ChecklistListRow[] = list
+          .map((x) => {
+            if (!x || typeof x !== "object") return null;
+            const r = x as Record<string, unknown>;
+            if (!isISODateString(r.createdAt)) return null;
+            if (!Number.isFinite(Number(r.kmInitial))) return null;
+            return { createdAt: r.createdAt, kmInitial: Number(r.kmInitial) };
+          })
+          .filter((x): x is ChecklistListRow => x !== null);
+
+        let latest: ChecklistListRow | null = null;
+        for (const c of candidates) {
+          if (!latest) latest = c;
+          else if (c.createdAt > latest.createdAt) latest = c;
         }
 
-        const km = latest && Number.isFinite(Number(latest.kmInitial)) ? Number(latest.kmInitial) : null;
-        setLastKm(km !== null ? Math.floor(km) : null);
+        const km = latest ? Math.floor(latest.kmInitial) : null;
+        if (!cancelled) setLastKm(km);
       } catch {
-        setLastKm(null);
+        if (!cancelled) setLastKm(null);
       }
     })();
-  }, [vehicleCode]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [assetCode]);
 
   function setValue(key: string, value: string) {
     setValues((prev) => ({ ...prev, [key]: value }));
@@ -123,67 +186,61 @@ export default function ChecklistFillPage({
     setInvalidModeDetail(false);
     setInvalidKm(false);
 
-    if (!vehicle || !template) {
-      setError("Viatura/template não encontrado. Verifique o cadastro no código.");
+    if (!asset || !template) {
+      setError("Asset/template not found. Check demo assets and templates.");
       return;
     }
 
     if (!mode) {
       setInvalidMode(true);
-      setError("Selecione a modalidade para continuar.");
+      setError("Select an operation mode to continue.");
       scrollTo(modeRef);
       return;
     }
 
-    // ✅ Outros: exige descrição curta
-    if (mode === "Outros") {
+    // Other requires short description
+    if (mode === "Other") {
       const d = modeDetail.trim();
       if (d.length < 3) {
         setInvalidModeDetail(true);
-        setError("Em 'Outros', descreva brevemente a modalidade (mín. 3 caracteres).");
+        setError("For 'Other', describe briefly (min. 3 characters).");
         scrollTo(modeRef);
         return;
       }
     }
 
-    if (!kmInitial.trim()) {
+    const km = parseKm(kmInitial);
+    if (km === null) {
       setInvalidKm(true);
-      setError("Informe o Km Inicial para continuar.");
+      setError("Invalid odometer value. Use numbers only (e.g., 54321).");
       scrollTo(kmRef);
       return;
     }
 
-    const km = Number(kmInitial);
-    if (!Number.isFinite(km) || km < 0) {
-      setInvalidKm(true);
-      setError("Km Inicial inválido. Digite apenas números (ex: 54321).");
-      scrollTo(kmRef);
-      return;
-    }
-
-    // ✅ Validação: km não pode ser menor que o último registrado (sem confirmação)
+    // km cannot be lower than last without confirmation
     if (lastKm !== null && km < lastKm && !forceKm) {
       setNeedKmConfirm(true);
       setInvalidKm(true);
       setError(
-        `Km Inicial menor que o último registrado para esta viatura (último: ${lastKm}). ` +
-          `Se estiver correto (ex.: troca de painel/odômetro), confirme para salvar.`
+        `Initial odometer is lower than the last saved value for this asset (last: ${lastKm}). ` +
+          `If correct (e.g., odometer replacement), confirm to save.`
       );
       scrollTo(kmRef);
       return;
     }
 
-    const answers: ChecklistAnswer[] = (template.items ?? []).map((item) => ({
-      key: item.key,
-      label: item.label,
-      type: item.type,
-      value:
-        item.type === "yesno"
-          ? values[item.key] === "no"
-            ? "no"
-            : "yes"
-          : values[item.key] ?? "",
-    }));
+    const answers: ChecklistAnswer[] = template.items.map((item) => {
+      if (item.type === "yesno") {
+        const v = values[item.key] === "no" ? "no" : "yes";
+        return { key: item.key, label: item.label, type: "yesno", value: v };
+      }
+      return {
+        key: item.key,
+        label: item.label,
+        type: "text",
+        value: values[item.key] ?? "",
+      };
+    });
 
     try {
       setIsSaving(true);
@@ -191,92 +248,39 @@ export default function ChecklistFillPage({
       const now = new Date().toISOString();
 
       const id = await db.checklists.add({
-        vehicleCode,
+        assetCode,
         createdAt: now,
-        createdByRe,
+        createdByUserId,
         createdByRole,
-        mode: mode as PolicingMode,
-        modeDetail: mode === "Outros" ? modeDetail.trim() : "",
-        kmInitial: Math.floor(km),
+        mode,
+        modeDetail: mode === "Other" ? modeDetail.trim() : "",
+        kmInitial: km,
         templateId: template.templateId,
         templateVersion: template.version,
-        answers,
-      } as any);
+        answers, // persisted + sanitized by DB hooks too
+      });
 
-      // ✅ Motorista: só mensagem de sucesso
-      if (createdByRole === "driver") {
+      // operator: show success screen only
+      if (createdByRole === "operator") {
         setSavedOk(true);
         return;
       }
 
-      // ✅ Admin: abre detalhe
+      // admin: open detail
       onSaved(id);
-    } catch (e) {
-      setError("Falha ao salvar. Tente novamente.");
+    } catch {
+      setError("Failed to save. Please try again.");
     } finally {
       setIsSaving(false);
     }
   }
 
-  // ✅ Tela de sucesso do motorista
-  if (createdByRole === "driver" && savedOk) {
-    return (
-      <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "var(--text)" }}>
-        <h2 style={{ marginTop: 0, color: "var(--text)" }}>Checklist enviado ✅</h2>
-        <p style={{ marginTop: 8, color: "var(--text-muted)" }}>
-          Registro salvo com sucesso.
-          <br />
-          Viatura: <b style={{ color: "var(--text)" }}>{vehicleCode}</b> • Data/Hora:{" "}
-          <b style={{ color: "var(--text)" }}>{new Date().toLocaleString("pt-BR")}</b>
-        </p>
-
-        <button
-          onClick={onBack}
-          style={{
-            marginTop: 12,
-            width: "100%",
-            padding: 14,
-            borderRadius: 12,
-            border: "1px solid var(--border)",
-            background: "var(--bg)",
-            color: "var(--text)",
-            cursor: "pointer",
-            minHeight: 48,
-            fontSize: 16,
-            fontWeight: 800,
-          }}
-        >
-          Voltar
-        </button>
-      </div>
-    );
-  }
-
-  if (!vehicle || !template) {
-    return (
-      <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "var(--text)" }}>
-        <button
-          onClick={onBack}
-          style={{
-            padding: "10px 12px",
-            borderRadius: 12,
-            border: "1px solid var(--border)",
-            background: "var(--bg)",
-            cursor: "pointer",
-            minHeight: 44,
-            color: "var(--text)",
-            fontWeight: 700,
-          }}
-        >
-          ← Voltar
-        </button>
-        <p style={{ marginTop: 12, color: "var(--text-muted)" }}>
-          Viatura/template não encontrado. Verifique <b style={{ color: "var(--text)" }}>src/vehicles.ts</b> e{" "}
-          <b style={{ color: "var(--text)" }}>src/checklists/templates.ts</b>.
-        </p>
-      </div>
-    );
-  }
+  const pageWrap: React.CSSProperties = {
+    maxWidth: 820,
+    margin: "0 auto",
+    padding: 16,
+    color: "var(--text)",
+  };
 
   const styles = {
     btn: {
@@ -337,44 +341,87 @@ export default function ChecklistFillPage({
     } as React.CSSProperties,
   };
 
+  // operator success screen
+  if (createdByRole === "operator" && savedOk) {
+    return (
+      <div style={pageWrap}>
+        <h2 style={{ marginTop: 0, color: "var(--text)" }}>
+          Checklist saved ✅
+        </h2>
+        <p style={{ marginTop: 8, color: "var(--text-muted)" }}>
+          Record saved successfully.
+          <br />
+          Asset: <b style={{ color: "var(--text)" }}>{assetCode}</b> • Timestamp:{" "}
+          <b style={{ color: "var(--text)" }}>
+            {new Date().toLocaleString("en-US")}
+          </b>
+        </p>
+
+        <button onClick={onBack} style={{ ...styles.btn, width: "100%" }}>
+          Back
+        </button>
+      </div>
+    );
+  }
+
+  if (!asset || !template) {
+    return (
+      <div style={pageWrap}>
+        <button onClick={onBack} style={styles.btn}>
+          ← Back
+        </button>
+        <p style={{ marginTop: 12, color: "var(--text-muted)" }}>
+          Asset/template not found. Check{" "}
+          <b style={{ color: "var(--text)" }}>src/demo/assets.demo.ts</b> and{" "}
+          <b style={{ color: "var(--text)" }}>src/checklists/templates.ts</b>.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div style={{ maxWidth: 820, margin: "0 auto", padding: 16, color: "var(--text)" }}>
+    <div style={pageWrap}>
       <button onClick={onBack} style={styles.btn}>
-        ← Voltar
+        ← Back
       </button>
 
-      <h2 style={{ marginTop: 12, fontSize: 22, color: "var(--text)" }}>Checklist do dia {todayTag}</h2>
+      <h2 style={{ marginTop: 12, fontSize: 22, color: "var(--text)" }}>
+        Daily Checklist {todayTag}
+      </h2>
 
       <p style={{ marginTop: 0, color: "var(--text-muted)", lineHeight: 1.35 }}>
-        Viatura: <b style={{ color: "var(--text)" }}>{vehicle.code}</b> • Placa:{" "}
-        <b style={{ color: "var(--text)" }}>{vehicle.plate}</b>
+        Asset: <b style={{ color: "var(--text)" }}>{asset.code}</b>
         <br />
-        Modelo: <b style={{ color: "var(--text)" }}>{template.title}</b>
+        Template: <b style={{ color: "var(--text)" }}>{template.title}</b>
         <br />
-        Usuário: <b style={{ color: "var(--text)" }}>RE {createdByRe}</b>
+        User: <b style={{ color: "var(--text)" }}>ID {createdByUserId}</b>
       </p>
 
       <section style={{ ...styles.card, marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0, color: "var(--text)", fontSize: 18 }}>Dados do serviço</h3>
+        <h3 style={{ marginTop: 0, color: "var(--text)", fontSize: 18 }}>
+          Session Data
+        </h3>
 
         <div style={{ display: "grid", gap: 12 }}>
           <div ref={modeRef}>
-            <div style={styles.label}>Modalidade</div>
+            <div style={styles.label}>Operation mode</div>
             <select
               value={mode}
               onChange={(e) => {
-                setMode(e.target.value as PolicingMode);
+                const next = e.target.value;
+                setMode(next === "" ? "" : (next as OperationMode));
                 setInvalidMode(false);
                 setError(null);
                 setNeedKmConfirm(false);
-                if (e.target.value !== "Outros") {
+
+                if (next !== "Other") {
                   setModeDetail("");
                   setInvalidModeDetail(false);
                 }
               }}
               style={styles.input(invalidMode)}
             >
-              <option value="">Selecione...</option>
+              <option value="">Select...</option>
               {MODES.map((m) => (
                 <option key={m} value={m}>
                   {m}
@@ -382,9 +429,9 @@ export default function ChecklistFillPage({
               ))}
             </select>
 
-            {mode === "Outros" && (
+            {mode === "Other" && (
               <div style={{ marginTop: 10 }}>
-                <div style={styles.label}>Descrição (Outros)</div>
+                <div style={styles.label}>Description (Other)</div>
                 <input
                   value={modeDetail}
                   onChange={(e) => {
@@ -392,16 +439,18 @@ export default function ChecklistFillPage({
                     setInvalidModeDetail(false);
                     setError(null);
                   }}
-                  placeholder="Ex: apoio evento, escolta, ronda setorial..."
+                  placeholder="e.g., event support, escort, facility checks..."
                   style={styles.input(invalidModeDetail)}
                 />
-                <div style={styles.hint}>Obrigatório em “Outros”. Mantenha curto e objetivo.</div>
+                <div style={styles.hint}>
+                  Required when “Other”. Keep it short and objective.
+                </div>
               </div>
             )}
           </div>
 
           <div ref={kmRef}>
-            <div style={styles.label}>Km Inicial</div>
+            <div style={styles.label}>Initial odometer</div>
             <input
               value={kmInitial}
               onChange={(e) => {
@@ -411,25 +460,28 @@ export default function ChecklistFillPage({
                 setNeedKmConfirm(false);
               }}
               inputMode="numeric"
-              placeholder="Ex: 54321"
+              placeholder="e.g., 54321"
               style={styles.input(invalidKm)}
             />
 
             {lastKm !== null && (
               <div style={styles.hint}>
-                Último Km registrado nesta viatura: <b style={{ color: "var(--text)" }}>{lastKm}</b>
+                Last odometer saved for this asset:{" "}
+                <b style={{ color: "var(--text)" }}>{lastKm}</b>
               </div>
             )}
 
             <div style={styles.hint}>
-              O horário é registrado automaticamente no momento em que você salva.
+              Timestamp is recorded automatically when you save.
             </div>
           </div>
         </div>
       </section>
 
       <section style={styles.card}>
-        <h3 style={{ marginTop: 0, fontSize: 18, color: "var(--text)" }}>{template.title}</h3>
+        <h3 style={{ marginTop: 0, fontSize: 18, color: "var(--text)" }}>
+          {template.title}
+        </h3>
 
         {template.items.map((item) => (
           <div
@@ -439,7 +491,14 @@ export default function ChecklistFillPage({
               borderBottom: "1px solid var(--border-soft)",
             }}
           >
-            <div style={{ fontWeight: 900, marginBottom: 10, color: "var(--text)", fontSize: 16 }}>
+            <div
+              style={{
+                fontWeight: 900,
+                marginBottom: 10,
+                color: "var(--text)",
+                fontSize: 16,
+              }}
+            >
               {item.label}
             </div>
 
@@ -453,7 +512,10 @@ export default function ChecklistFillPage({
                     padding: "12px 10px",
                     borderRadius: 12,
                     border: "1px solid var(--border)",
-                    background: values[item.key] === "yes" ? "var(--bg-surface-2)" : "var(--bg)",
+                    background:
+                      values[item.key] === "yes"
+                        ? "var(--bg-surface-2)"
+                        : "var(--bg)",
                     color: "var(--text)",
                     cursor: "pointer",
                     minHeight: 48,
@@ -461,7 +523,7 @@ export default function ChecklistFillPage({
                     fontWeight: 900,
                   }}
                 >
-                  Sim
+                  Yes
                 </button>
                 <button
                   type="button"
@@ -470,8 +532,14 @@ export default function ChecklistFillPage({
                     flex: 1,
                     padding: "12px 10px",
                     borderRadius: 12,
-                    border: values[item.key] === "no" ? "2px solid var(--danger)" : "1px solid var(--border)",
-                    background: values[item.key] === "no" ? "var(--bg-surface-2)" : "var(--bg)",
+                    border:
+                      values[item.key] === "no"
+                        ? "2px solid var(--danger)"
+                        : "1px solid var(--border)",
+                    background:
+                      values[item.key] === "no"
+                        ? "var(--bg-surface-2)"
+                        : "var(--bg)",
                     color: "var(--text)",
                     cursor: "pointer",
                     minHeight: 48,
@@ -479,14 +547,14 @@ export default function ChecklistFillPage({
                     fontWeight: 900,
                   }}
                 >
-                  Não
+                  No
                 </button>
               </div>
             ) : (
               <textarea
                 value={values[item.key] ?? ""}
                 onChange={(e) => setValue(item.key, e.target.value)}
-                placeholder="Digite observações..."
+                placeholder="Write notes..."
                 rows={3}
                 style={{
                   width: "100%",
@@ -512,7 +580,7 @@ export default function ChecklistFillPage({
             opacity: isSaving ? 0.75 : 1,
           }}
         >
-          {isSaving ? "Salvando..." : "Salvar checklist"}
+          {isSaving ? "Saving..." : "Save checklist"}
         </button>
 
         {error && (
@@ -521,7 +589,7 @@ export default function ChecklistFillPage({
               marginTop: 12,
               padding: 12,
               borderRadius: 12,
-              border: `2px solid ${needKmConfirm ? "var(--danger)" : "var(--danger)"}`,
+              border: "2px solid var(--danger)",
               background: "var(--bg-surface-2)",
               color: "var(--text)",
               fontWeight: 800,
@@ -546,7 +614,7 @@ export default function ChecklistFillPage({
                   fontWeight: 900,
                 }}
               >
-                Confirmar e salvar mesmo assim
+                Confirm and save anyway
               </button>
             )}
           </div>
