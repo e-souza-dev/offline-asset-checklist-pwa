@@ -63,7 +63,6 @@ const TYPE_E_ITEMS = [
  * Extra: compile-time guard against duplicate keys inside a template.
  * If keys collide (e.g., "doors" duplicated), TS will error.
  */
-type ItemKeyOf<T extends readonly ChecklistItem[]> = T[number]["key"];
 type HasDuplicateKeys<T extends readonly ChecklistItem[], Seen extends string = never> =
   T extends readonly [infer H, ...infer R]
     ? H extends ChecklistItem
