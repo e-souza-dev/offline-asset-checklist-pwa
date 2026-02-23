@@ -11,9 +11,9 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
       },
       manifest: {
-        name: "Manutenção 1º Escalão",
-        short_name: "Manutenção 1º Escalão",
-        description: "Checklist e controle de manutenção de 1º Escalão",
+        name: "asset-checklist-pwa",
+        short_name: "asset-checklist-pwa",
+        description: "Checklist and maintenance control for 1st level maintenance",
         start_url: "/",
         scope: "/",
         display: "standalone",
