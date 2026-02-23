@@ -2,13 +2,14 @@
 
 A production-style offline-first checklist application built with React, TypeScript and IndexedDB (Dexie).
 
-# 🇧🇷 Versão em português abaixo.
+[English Version](#english-version)  
+[Versao em Portugues](#versao-em-portugues)
 
 ---
 
-# 🇺🇸 English Version
+## English Version
 
-## Overview
+### Overview
 
 Offline Asset Checklist PWA is a portfolio project designed to simulate a real-world operational checklist system with:
 
@@ -143,9 +144,9 @@ npm run preview
 
 ---
 
-# 🇧🇷 Versão em Português
+## 🇧🇷 Versão em Português
 
-## Visão Geral
+### Visão Geral
 
 Offline Asset Checklist PWA é um projeto de portfólio que simula um sistema operacional de checklist com:
 
@@ -160,7 +161,7 @@ O projeto foi estruturado para se comportar como um produto SaaS real, mesmo sem
 
 ---
 
-## Por que este projeto existe
+### Por que este projeto existe
 
 Este projeto foi desenvolvido como parte de uma transição estratégica para a área de desenvolvimento.
 
@@ -176,7 +177,7 @@ Ele representa uma evolução de projetos acadêmicos para engenharia orientada 
 
 ---
 
-## Principais Funcionalidades
+### Principais Funcionalidades
 
 - 🔐 Controle de acesso (Admin / Operator)
 - 📱 Persistência offline
@@ -189,7 +190,7 @@ Ele representa uma evolução de projetos acadêmicos para engenharia orientada 
 
 ---
 
-## Stack Tecnológica
+### Stack Tecnológica
 
 - React
 - TypeScript
@@ -199,7 +200,7 @@ Ele representa uma evolução de projetos acadêmicos para engenharia orientada 
 
 ---
 
-## Próximas Melhorias
+### Próximas Melhorias
 
 - Integração com backend
 - Autenticação real
