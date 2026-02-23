@@ -2,7 +2,7 @@
 
 A production-style offline-first checklist application built with React, TypeScript and IndexedDB (Dexie).
 
-🇧🇷 Versão em português abaixo.
+# 🇧🇷 Versão em português abaixo.
 
 ---
 
