@@ -24,7 +24,7 @@ The project was intentionally structured to resemble a scalable SaaS product, ev
 
 ---
 
-## Why This Project Exists
+### Why This Project Exists
 
 This project was built as part of a strategic transition into software development.
 
@@ -37,30 +37,30 @@ Instead of creating a simple CRUD application, the goal was to design something 
 - Clean state management
 - Maintainable structure
 
-It represents a shift from “student projects” to product-oriented engineering.
+It represents a shift from student projects to product-oriented engineering.
 
 ---
 
-## Core Features
+### Core Features
 
-- 🔐 Role-based access (Admin / Operator)
-- 📱 Offline-first (no backend required)
-- 💾 IndexedDB persistence using Dexie
-- 📊 Admin dashboard with:
+- Role-based access (Admin / Operator)
+- Offline-first (no backend required)
+- IndexedDB persistence using Dexie
+- Admin dashboard with:
   - Filters (asset, user, mode, date range)
   - Totals per asset
   - Issue detection
-- 📤 Export:
+- Export:
   - JSON (backup)
   - CSV summary
   - CSV detailed
-- 📥 Import JSON backups (deduplicated)
-- 📋 Dynamic checklist templates by asset model
-- 🧠 Issue detection logic centralized in domain layer
+- Import JSON backups (deduplicated)
+- Dynamic checklist templates by asset model
+- Issue detection logic centralized in domain layer
 
 ---
 
-## Tech Stack
+### Tech Stack
 
 - React
 - TypeScript
@@ -71,9 +71,9 @@ It represents a shift from “student projects” to product-oriented engineerin
 
 ---
 
-## Architecture Highlights
+### Architecture Highlights
 
-### 1. Strong Domain Modeling
+#### 1. Strong Domain Modeling
 
 Core types:
 
@@ -86,9 +86,10 @@ Core types:
 Business rules (like issue detection) live in:
 src/utils/checklist.ts
 
+
 ---
 
-### 2. Offline-First Strategy
+#### 2. Offline-First Strategy
 
 - All data stored in IndexedDB
 - No network dependency
@@ -97,7 +98,7 @@ src/utils/checklist.ts
 
 ---
 
-### 3. Folder Structure
+#### 3. Folder Structure
 src/
 ├── checklists/ → template definitions
 ├── components/ → UI components
@@ -109,30 +110,26 @@ src/
 ├── auth.ts → session handling
 └── App.tsx
 
-
 ---
 
-## Running the Project
+### Running the Project
 
 Install dependencies:
-npm install
-
-
+    npm install
+    
 Run in development:
-npm run dev
-
-
+    npm run dev
+    
 Build production version:
-npm run build
-
-
+    npm run build
+    
 Preview production build (recommended for PWA testing):
-npm run preview
+    npm run preview
 
 
 ---
 
-## Future Improvements
+### Future Improvements
 
 - Backend integration (REST / GraphQL)
 - Multi-tenant architecture
@@ -144,9 +141,9 @@ npm run preview
 
 ---
 
-## 🇧🇷 Versão em Português
+## Versao em Portugues
 
-### Visão Geral
+### Visao Geral
 
 Offline Asset Checklist PWA é um projeto de portfólio que simula um sistema operacional de checklist com:
 
@@ -179,18 +176,18 @@ Ele representa uma evolução de projetos acadêmicos para engenharia orientada 
 
 ### Principais Funcionalidades
 
-- 🔐 Controle de acesso (Admin / Operator)
-- 📱 Persistência offline
-- 💾 IndexedDB com Dexie
-- 📊 Dashboard administrativo com filtros
-- 📤 Exportação em JSON e CSV
-- 📥 Importação com deduplicação
-- 📋 Templates dinâmicos por tipo de ativo
-- 🧠 Lógica de detecção de problemas centralizada
+- Controle de acesso (Admin / Operator)
+- Persistência offline
+- IndexedDB com Dexie
+- Dashboard administrativo com filtros
+- Exportação em JSON e CSV
+- Importação com deduplicação
+- Templates dinâmicos por tipo de ativo
+- Lógica de detecção de problemas centralizada
 
 ---
 
-### Stack Tecnológica
+### Stack Tecnologica
 
 - React
 - TypeScript
@@ -200,7 +197,7 @@ Ele representa uma evolução de projetos acadêmicos para engenharia orientada 
 
 ---
 
-### Próximas Melhorias
+### Proximas Melhorias
 
 - Integração com backend
 - Autenticação real
